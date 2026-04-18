@@ -1,9 +1,9 @@
 from flask import Flask, render_template_string, request
 import sqlite3
+import os
 
 app = Flask(__name__)
 
-# Configuración de la Base de Datos
 def init_db():
     conn = sqlite3.connect('ventas.db')
     cursor = conn.cursor()
@@ -49,5 +49,6 @@ def agregar():
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, port=8080)
-  
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+    
