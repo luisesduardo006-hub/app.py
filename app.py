@@ -56,6 +56,7 @@ CSS = '''
     .btn-rojo { background: #f00; color: #fff; padding: 5px; text-decoration: none; border: none; cursor: pointer; }
     .btn-volver { background: none; border: 1px solid #0f0; color: #0f0; padding: 10px; width: 100%; margin-top: 10px; cursor: pointer; font-weight: bold; display: block; text-align: center; text-decoration: none; }
     .btn-volver:hover { background: #0f0; color: #000; }
+    .btn-whatsapp { background: #25D366; color: #fff; text-align: center; padding: 15px; text-decoration: none; display: block; font-weight: bold; border-radius: 5px; margin-top: 10px; }
 </style>
 '''
 
@@ -100,11 +101,12 @@ def verificar():
         return menu
     return "Acceso denegado o cuenta suspendida."
 
-# --- VENTAS ---
+# --- SISTEMA DE VENTAS ---
 
 @app.route('/venta')
 def vista_venta():
     clave = session.get('usuario_clave')
+    if not clave: return redirect('/')
     db_u = iniciar_db_usuarios()
     user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
     db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
@@ -159,14 +161,17 @@ def agregar():
 @app.route('/quitar/<i>')
 def quitar(i):
     carrito = session.get('carrito', [])
-    carrito.pop(int(i))
-    session['carrito'] = carrito
+    if 0 <= int(i) < len(carrito):
+        carrito.pop(int(i))
+        session['carrito'] = carrito
     return redirect('/venta')
 
 @app.route('/confirmar')
 def confirmar():
     clave = session.get('usuario_clave')
     carrito = session.get('carrito', [])
+    if not carrito: return redirect('/venta')
+
     db_u = iniciar_db_usuarios()
     user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
     db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
@@ -183,30 +188,35 @@ def confirmar():
         db.execute("INSERT INTO ventas (total, pago, cambio, fecha, vendedor) VALUES (?,?,?,?,?)", (total, total, 0, datetime.now().strftime("%H:%M"), user['nombre']))
     
     ticket_raw += f"--------------------------\\n💰 *TOTAL: ${total}*"
-    
-    # GUARDAMOS EL TICKET TEMPORAL EN SESSION PARA MANDARLO DESPUÉS
     session['ticket_pendiente'] = ticket_raw
     session['carrito'] = [] 
 
     return f'''{CSS}<div class="menu-box">
-        <h3>✅ VENTA COBRADA: ${total}</h3>
-        <p>Introduce el número del cliente para mandar el ticket:</p>
-        <form action="/enviar_ticket" method="post">
-            <input type="text" name="tel_cliente" placeholder="Ej: 5512345678" required>
-            <button type="submit" style="background:#0f0; color:#000">📲 ENVIAR TICKET POR WHATSAPP</button>
+        <h3>✅ VENTA GUARDADA: ${total}</h3>
+        <p>Escribe el número del cliente para generar el enlace:</p>
+        <form action="/preparar_enlace" method="post">
+            <input type="text" name="tel_cliente" placeholder="WhatsApp (Ej: 5512345678)" required>
+            <button type="submit">GENERAR ENLACE DE ENVÍO</button>
         </form>
         <br>
-        <a href="/venta" class="btn-volver">OMITIR Y NUEVA VENTA</a>
+        <a href="/venta" class="btn-volver">OMITIR Y VOLVER</a>
     </div>'''
 
-@app.route('/enviar_ticket', methods=['POST'])
-def enviar_ticket():
+@app.route('/preparar_enlace', methods=['POST'])
+def preparar_enlace():
     tel = request.form.get('tel_cliente')
     ticket = session.get('ticket_pendiente', '')
     url_wa = f"https://api.whatsapp.com/send?phone=52{tel}&text={urllib.parse.quote(ticket)}"
-    return f'''<script>window.open("{url_wa}", "_blank"); window.location.href = "/venta";</script>'''
+    
+    return f'''{CSS}<div class="menu-box">
+        <h3>🔗 ENLACE LISTO</h3>
+        <p>Haz clic en el botón de abajo para abrir WhatsApp y enviar el ticket:</p>
+        <a href="{url_wa}" target="_blank" class="btn-whatsapp">🟢 ABRIR CHAT DE WHATSAPP</a>
+        <hr>
+        <a href="/venta" class="btn-volver">FINALIZAR Y NUEVA VENTA</a>
+    </div>'''
 
-# --- EL RESTO DEL CÓDIGO (STOCK, CONFIG, GASTOS) SE MANTIENE ---
+# --- EL RESTO DE FUNCIONES (INVENTARIO, USUARIOS, CONFIG) ---
 
 @app.route('/inventario/<clave>')
 def inventario(clave):
@@ -227,6 +237,20 @@ def add_prod():
     db = iniciar_db(f"tienda_{clave}.db")
     with db: db.execute("INSERT OR REPLACE INTO productos (codigo, nombre, precio, stock, min_compra, unidad) VALUES (?,?,?,?,?,?)", (request.form.get('cod'), request.form.get('nom'), request.form.get('pre'), request.form.get('sto'), 0, request.form.get('uni')))
     return redirect(f"/inventario/{clave}")
+
+@app.route('/config/<clave>')
+def config(clave):
+    db = iniciar_db(f"tienda_{clave}.db")
+    c = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
+    return f'''{CSS}<div class="menu-box"><h3>⚙️ CONFIG</h3><form action="/upd_conf" method="post"><input type="hidden" name="clave" value="{clave}"><label>Nombre Negocio:</label><input name="nn" value="{c['nombre_negocio']}"><label>WhatsApp Dueño:</label><input name="nt" value="{c['telefono_dueno']}"><button type="submit">GUARDAR</button></form>
+    <form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
+
+@app.route('/upd_conf', methods=['POST'])
+def upd_conf():
+    clave, nn, nt = request.form.get('clave'), request.form.get('nn'), request.form.get('nt')
+    db = iniciar_db(f"tienda_{clave}.db")
+    with db: db.execute("UPDATE configuracion SET nombre_negocio=?, telefono_dueno=? WHERE id=1", (nn, nt))
+    return redirect(f"/config/{clave}")
 
 @app.route('/usuarios/<clave>')
 def gestionar_usuarios(clave):
@@ -259,20 +283,6 @@ def add_user():
     with db_u: db_u.execute("INSERT INTO usuarios (clave, nombre, rango, creado_por, estado) VALUES (?,?,?,?,?)", (clv, nom, rango, admin, "Activo"))
     return f"{CSS}<div class='menu-box'>✅ CLAVE: {clv}<br><a href='/' class='btn-volver'>LOGIN</a></div>"
 
-@app.route('/config/<clave>')
-def config(clave):
-    db = iniciar_db(f"tienda_{clave}.db")
-    c = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
-    return f'''{CSS}<div class="menu-box"><h3>⚙️ CONFIG</h3><form action="/upd_conf" method="post"><input type="hidden" name="clave" value="{clave}"><input name="nn" value="{c['nombre_negocio']}"><input name="nt" value="{c['telefono_dueno']}"><button type="submit">GUARDAR</button></form>
-    <form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
-
-@app.route('/upd_conf', methods=['POST'])
-def upd_conf():
-    clave, nn, nt = request.form.get('clave'), request.form.get('nn'), request.form.get('nt')
-    db = iniciar_db(f"tienda_{clave}.db")
-    with db: db.execute("UPDATE configuracion SET nombre_negocio=?, telefono_dueno=? WHERE id=1", (nn, nt))
-    return redirect(f"/config/{clave}")
-
 @app.route('/pago_proveedor/<clave>')
 def pago_proveedor(clave):
     return f'''{CSS}<div class="menu-box"><h3>🚚 GASTOS</h3><form action="/reg_gasto" method="post"><input type="hidden" name="clave" value="{clave}"><input name="prov" placeholder="Concepto"><input type="number" step="0.1" name="monto" placeholder="Monto"><button type="submit">PAGAR</button></form>
@@ -295,12 +305,12 @@ def corte(clave):
     conf = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
     v = db.execute("SELECT SUM(total) as t FROM ventas WHERE fecha LIKE ?", (f"{datetime.now().strftime('%Y-%m-%d')}%",)).fetchone()['t'] or 0
     g = db.execute("SELECT SUM(monto) as t FROM gastos WHERE fecha LIKE ?", (f"{datetime.now().strftime('%Y-%m-%d')}%",)).fetchone()['t'] or 0
-    msg = f"📊 CORTE {conf['nombre_negocio']}\\n💰 TOTAL: ${v-g}"
+    msg = f"📊 CORTE {conf['nombre_negocio']}\\n💰 TOTAL NETO: ${v-g}"
     url = f"https://api.whatsapp.com/send?phone=52{conf['telefono_dueno']}&text={urllib.parse.quote(msg)}"
-    return f'''{CSS}<div class="menu-box"><h3>📊 CORTE</h3><p>Neto: ${v-g}</p><a href='{url}' class='opcion' target='_blank'>📲 MANDAR CORTE AL DUEÑO</a><form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
+    return f'''{CSS}<div class="menu-box"><h3>📊 CORTE HOY</h3><p>Ventas: ${v}</p><p>Gastos: ${g}</p><h4>NETO: ${v-g}</h4><a href='{url}' class='btn-whatsapp' target='_blank'>📲 MANDAR AL DUEÑO</a><form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
 
 if __name__ == "__main__":
     iniciar_db_usuarios()
     iniciar_db()
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
-            
+    
