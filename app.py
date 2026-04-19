@@ -1,13 +1,11 @@
-import sqlite3
+timedeltaqlite3
 import os
 import random
 import io
 import pandas as pd
 import mercadopago
-from datetime import datetime, timedelta
-from flask import Flask, request, redirect, session, send_file, jsonify
-
-app = Flask(__name__)
+from datetime import datetime, timedeltaapfrom flask import Flask, request, redirect, session, send_fileapp
+appapp = Flask(__name__)
 app.secret_key = 'SISTEMA_V10_PRO_FINAL_2026'
 
 # --- CONFIGURACIÓN MERCADO PAGO ---
