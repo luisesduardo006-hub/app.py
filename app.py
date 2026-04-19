@@ -235,13 +235,71 @@ def corte():
 @app.route('/exportar_excel')
 def exportar_excel():
     conn = get_db_connection()
-    df = pd.read_sql_query("SELECT fecha, detalle, total, vendedor FROM ventas WHERE dueño=?", conn, params=(session['dueño'],))
+    dueño_id = session['dueño']
+    
+    # 1. Obtener Ventas (Incluyendo ID como No. Ticket)
+    query_v = """
+    SELECT id as 'TICKET', date('now') as FECHA, fecha as HORA, vendedor as 'RESPONSABLE', 
+    'VENTA' as TIPO, detalle as 'CONCEPTO / PRODUCTO', 
+    total as 'ENTRADA (+)', 0.0 as 'SALIDA (-)', 'CLIENTE' as 'DESTINATARIO'
+    FROM ventas WHERE dueño=?
+    """
+    df_v = pd.read_sql_query(query_v, conn, params=(dueño_id,))
+    
+    # 2. Obtener Pagos
+    query_p = """
+    SELECT id as 'TICKET', date('now') as FECHA, fecha as HORA, responsable as 'RESPONSABLE', 
+    'PAGO PROV' as TIPO, concepto as 'CONCEPTO / PRODUCTO', 
+    0.0 as 'ENTRADA (+)', monto as 'SALIDA (-)', 'PROVEEDOR' as 'DESTINATARIO'
+    FROM pagos WHERE dueño=?
+    """
+    df_p = pd.read_sql_query(query_p, conn, params=(dueño_id,))
+    
+    # Si no hay nada, avisamos para no borrar tablas vacías
+    if df_v.empty and df_p.empty:
+        return f'{CSS}<div class="card"><h2>Sin datos</h2><p>No hay movimientos hoy.</p><a href="/hub" class="btn-nav">Volver</a></div>'
+
+    # Unir y ordenar
+    df_final = pd.concat([df_v, df_p]).sort_values(by='HORA')
+
+    # --- BORRADO TRAS GENERAR EL REPORTE ---
+    query_db("DELETE FROM ventas WHERE dueño=?", (dueño_id,))
+    query_db("DELETE FROM pagos WHERE dueño=?", (dueño_id,))
+
     conn.close()
+
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
+        df_final.to_excel(writer, index=False, sheet_name='Cierre de Caja')
+        ws = writer.sheets['Cierre de Caja']
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        # Estilos Pasteles
+        color_header = PatternFill(start_color="2D3748", end_color="2D3748", fill_type="solid")
+        color_venta = PatternFill(start_color="E2F9E1", end_color="E2F9E1", fill_type="solid")
+        color_pago = PatternFill(start_color="FFF1F0", end_color="FFF1F0", fill_type="solid")
+        font_white = Font(bold=True, color="FFFFFF")
+
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+            for cell in row:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+                if cell.row == 1:
+                    cell.fill = color_header
+                    cell.font = font_white
+                    cell.alignment = Alignment(horizontal="center")
+                else:
+                    # Columna E es 'TIPO'
+                    tipo = ws[f"E{cell.row}"].value
+                    cell.fill = color_venta if tipo == 'VENTA' else color_pago
+
+        for col in ws.columns:
+            max_len = max([len(str(cell.value)) for cell in col])
+            ws.column_dimensions[col[0].column_letter].width = max_len + 4
+
     output.seek(0)
-    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name="Corte_Caja.xlsx")
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
+                     as_attachment=True, download_name=f"CIERRE_{datetime.now().strftime('%d_%m_%H%M')}.xlsx")
+    
 
 @app.route('/inventario')
 def inventario():
