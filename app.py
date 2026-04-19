@@ -100,7 +100,7 @@ def verificar():
         return menu
     return "Acceso denegado o cuenta suspendida."
 
-# --- VENTAS KILO/PIEZA + TICKET ---
+# --- VENTAS ---
 
 @app.route('/venta')
 def vista_venta():
@@ -130,7 +130,7 @@ def vista_venta():
         </form>
         {tabla}
         <h4>TOTAL: ${total}</h4>
-        {f'<a href="/confirmar" class="opcion" style="background:#0f0; color:#000; text-align:center">--- COBRAR Y GENERAR TICKET ---</a>' if carrito else ''}
+        {f'<a href="/confirmar" class="opcion" style="background:#0f0; color:#000; text-align:center">--- FINALIZAR VENTA ---</a>' if carrito else ''}
         <br>
         <form action="/verificar" method="post">
             <input type="hidden" name="clave" value="{clave}">
@@ -173,22 +173,41 @@ def confirmar():
     conf = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
     
     total = sum(item['subtotal'] for item in carrito)
-    ticket = f"🧾 *TICKET: {conf['nombre_negocio']}*\\n"
-    ticket += f"👤 Atendió: {user['nombre']}\\n--------------------------\\n"
+    ticket_raw = f"🧾 *TICKET: {conf['nombre_negocio']}*\\n"
+    ticket_raw += f"👤 Atendió: {user['nombre']}\\n--------------------------\\n"
     
     with db:
         for it in carrito:
             db.execute("UPDATE productos SET stock = stock - ? WHERE codigo = ?", (it['cantidad'], it['codigo']))
-            ticket += f"• {it['nombre']}: ${it['subtotal']}\\n"
-        db.execute("INSERT INTO ventas (total, pago, cambio, fecha, vendedor) VALUES (?,?,?,?,?)", (total, total, 0, datetime.now().strftime("%Y-%m-%d %H:%M"), user['nombre']))
+            ticket_raw += f"• {it['nombre']}: ${it['subtotal']}\\n"
+        db.execute("INSERT INTO ventas (total, pago, cambio, fecha, vendedor) VALUES (?,?,?,?,?)", (total, total, 0, datetime.now().strftime("%H:%M"), user['nombre']))
     
-    ticket += f"--------------------------\\n💰 *TOTAL: ${total}*"
-    url_wa = f"https://api.whatsapp.com/send?phone=52{conf['telefono_dueno']}&text={urllib.parse.quote(ticket)}"
+    ticket_raw += f"--------------------------\\n💰 *TOTAL: ${total}*"
     
-    session['carrito'] = []
-    return f"{CSS}<div class='menu-box'><h3>✅ VENTA GUARDADA</h3><a href='{url_wa}' class='opcion' target='_blank'>📲 ENVIAR TICKET WHATSAPP</a><br><br><a href='/venta' class='btn-volver'>NUEVA VENTA</a></div>"
+    # GUARDAMOS EL TICKET TEMPORAL EN SESSION PARA MANDARLO DESPUÉS
+    session['ticket_pendiente'] = ticket_raw
+    session['carrito'] = [] 
 
-# --- INVENTARIO ---
+    return f'''{CSS}<div class="menu-box">
+        <h3>✅ VENTA COBRADA: ${total}</h3>
+        <p>Introduce el número del cliente para mandar el ticket:</p>
+        <form action="/enviar_ticket" method="post">
+            <input type="text" name="tel_cliente" placeholder="Ej: 5512345678" required>
+            <button type="submit" style="background:#0f0; color:#000">📲 ENVIAR TICKET POR WHATSAPP</button>
+        </form>
+        <br>
+        <a href="/venta" class="btn-volver">OMITIR Y NUEVA VENTA</a>
+    </div>'''
+
+@app.route('/enviar_ticket', methods=['POST'])
+def enviar_ticket():
+    tel = request.form.get('tel_cliente')
+    ticket = session.get('ticket_pendiente', '')
+    url_wa = f"https://api.whatsapp.com/send?phone=52{tel}&text={urllib.parse.quote(ticket)}"
+    return f'''<script>window.open("{url_wa}", "_blank"); window.location.href = "/venta";</script>'''
+
+# --- EL RESTO DEL CÓDIGO (STOCK, CONFIG, GASTOS) SE MANTIENE ---
+
 @app.route('/inventario/<clave>')
 def inventario(clave):
     db_u = iniciar_db_usuarios()
@@ -199,13 +218,8 @@ def inventario(clave):
     for p in prods: tabla += f"<tr><td>{p['codigo']}</td><td>{p['nombre']}</td><td>${p['precio']}</td><td>{p['stock']}</td><td>{p['unidad']}</td></tr>"
     tabla += "</table>"
     form = f'''<hr><form action="/add_prod" method="post"><input type="hidden" name="clave" value="{clave}"><input name="cod" placeholder="Cod"><input name="nom" placeholder="Nombre"><input type="number" step="0.1" name="pre" placeholder="Precio"><input type="number" step="0.1" name="sto" placeholder="Stock"><select name="uni"><option value="p">Pieza</option><option value="k">Kilo</option></select><button type="submit">GUARDAR</button></form>''' if user['rango'] != 'Trabajador' else ""
-    
     return f'''{CSS}<div class="menu-box"><h3>📦 STOCK</h3>{tabla}{form}
-        <form action="/verificar" method="post">
-            <input type="hidden" name="clave" value="{clave}">
-            <button type="submit" class="btn-volver">VOLVER AL MENÚ</button>
-        </form>
-    </div>'''
+        <form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
 
 @app.route('/add_prod', methods=['POST'])
 def add_prod():
@@ -214,7 +228,6 @@ def add_prod():
     with db: db.execute("INSERT OR REPLACE INTO productos (codigo, nombre, precio, stock, min_compra, unidad) VALUES (?,?,?,?,?,?)", (request.form.get('cod'), request.form.get('nom'), request.form.get('pre'), request.form.get('sto'), 0, request.form.get('uni')))
     return redirect(f"/inventario/{clave}")
 
-# --- GESTION USUARIOS ---
 @app.route('/usuarios/<clave>')
 def gestionar_usuarios(clave):
     db_u = iniciar_db_usuarios()
@@ -225,13 +238,8 @@ def gestionar_usuarios(clave):
     for u in mi_rama:
         acc = f'<td><a href="/status/{clave}/{u["clave"]}" class="btn-rojo">S/A</a></td>' if user['rango'] == "Administrador" else "<td>-</td>"
         tabla += f"<tr><td>{u['clave']}</td><td>{u['nombre']}</td><td>{u['estado']}</td>{acc}</tr>"
-    
-    return f'''{CSS}<div class="menu-box"><h3>👥 {rango_dest.upper()}S</h3>{tabla+ "</table>"}<hr>
-    <form action="/add_user" method="post"><input type="hidden" name="admin_clave" value="{clave}"><input type="hidden" name="rango" value="{rango_dest}"><input name="nombre" placeholder="Nombre"><button type="submit">AÑADIR</button></form>
-    <form action="/verificar" method="post">
-        <input type="hidden" name="clave" value="{clave}">
-        <button type="submit" class="btn-volver">VOLVER AL MENÚ</button>
-    </form></div>'''
+    return f'''{CSS}<div class="menu-box"><h3>👥 USUARIOS</h3>{tabla+"</table>"}<hr><form action="/add_user" method="post"><input type="hidden" name="admin_clave" value="{clave}"><input type="hidden" name="rango" value="{rango_dest}"><input name="nombre" placeholder="Nombre"><button type="submit">AÑADIR</button></form>
+    <form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
 
 @app.route('/status/<admin>/<target>')
 def status(admin, target):
@@ -249,29 +257,14 @@ def add_user():
     clv = f"{nom[:3].upper()}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=4))}"
     db_u = iniciar_db_usuarios()
     with db_u: db_u.execute("INSERT INTO usuarios (clave, nombre, rango, creado_por, estado) VALUES (?,?,?,?,?)", (clv, nom, rango, admin, "Activo"))
-    return f"{CSS}<div class='menu-box'>✅ CLAVE GENERADA: {clv}<br><a href='/' class='btn-volver'>VOLVER AL LOGIN</a></div>"
+    return f"{CSS}<div class='menu-box'>✅ CLAVE: {clv}<br><a href='/' class='btn-volver'>LOGIN</a></div>"
 
-# --- CONFIGURACIÓN CON BOTÓN VOLVER ---
 @app.route('/config/<clave>')
 def config(clave):
     db = iniciar_db(f"tienda_{clave}.db")
     c = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
-    return f'''{CSS}<div class="menu-box">
-        <h3>⚙️ CONFIGURACIÓN</h3>
-        <form action="/upd_conf" method="post">
-            <input type="hidden" name="clave" value="{clave}">
-            <label>Nombre Negocio:</label>
-            <input name="nn" value="{c['nombre_negocio']}">
-            <label>Teléfono (WhatsApp):</label>
-            <input name="nt" value="{c['telefono_dueno']}">
-            <button type="submit">GUARDAR CAMBIOS</button>
-        </form>
-        <hr>
-        <form action="/verificar" method="post">
-            <input type="hidden" name="clave" value="{clave}">
-            <button type="submit" class="btn-volver">VOLVER AL MENÚ</button>
-        </form>
-    </div>'''
+    return f'''{CSS}<div class="menu-box"><h3>⚙️ CONFIG</h3><form action="/upd_conf" method="post"><input type="hidden" name="clave" value="{clave}"><input name="nn" value="{c['nombre_negocio']}"><input name="nt" value="{c['telefono_dueno']}"><button type="submit">GUARDAR</button></form>
+    <form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
 
 @app.route('/upd_conf', methods=['POST'])
 def upd_conf():
@@ -280,14 +273,10 @@ def upd_conf():
     with db: db.execute("UPDATE configuracion SET nombre_negocio=?, telefono_dueno=? WHERE id=1", (nn, nt))
     return redirect(f"/config/{clave}")
 
-# --- GASTOS Y CORTE ---
 @app.route('/pago_proveedor/<clave>')
 def pago_proveedor(clave):
     return f'''{CSS}<div class="menu-box"><h3>🚚 GASTOS</h3><form action="/reg_gasto" method="post"><input type="hidden" name="clave" value="{clave}"><input name="prov" placeholder="Concepto"><input type="number" step="0.1" name="monto" placeholder="Monto"><button type="submit">PAGAR</button></form>
-    <form action="/verificar" method="post">
-        <input type="hidden" name="clave" value="{clave}">
-        <button type="submit" class="btn-volver">VOLVER</button>
-    </form></div>'''
+    <form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
 
 @app.route('/reg_gasto', methods=['POST'])
 def reg_gasto():
@@ -308,14 +297,10 @@ def corte(clave):
     g = db.execute("SELECT SUM(monto) as t FROM gastos WHERE fecha LIKE ?", (f"{datetime.now().strftime('%Y-%m-%d')}%",)).fetchone()['t'] or 0
     msg = f"📊 CORTE {conf['nombre_negocio']}\\n💰 TOTAL: ${v-g}"
     url = f"https://api.whatsapp.com/send?phone=52{conf['telefono_dueno']}&text={urllib.parse.quote(msg)}"
-    return f'''{CSS}<div class="menu-box"><h3>📊 CORTE</h3><p>Ventas: ${v}</p><p>Gastos: ${g}</p><h4>NETO: ${v-g}</h4><a href='{url}' class='opcion' target='_blank'>📲 MANDAR WA</a>
-    <form action="/verificar" method="post">
-        <input type="hidden" name="clave" value="{clave}">
-        <button type="submit" class="btn-volver">VOLVER</button>
-    </form></div>'''
+    return f'''{CSS}<div class="menu-box"><h3>📊 CORTE</h3><p>Neto: ${v-g}</p><a href='{url}' class='opcion' target='_blank'>📲 MANDAR CORTE AL DUEÑO</a><form action="/verificar" method="post"><input type="hidden" name="clave" value="{clave}"><button type="submit" class="btn-volver">VOLVER</button></form></div>'''
 
 if __name__ == "__main__":
     iniciar_db_usuarios()
     iniciar_db()
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
-        
+            
