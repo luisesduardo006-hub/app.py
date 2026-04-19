@@ -303,38 +303,96 @@ def exportar_excel():
 
 @app.route('/inventario')
 def inventario():
-    ps = query_db("SELECT * FROM productos WHERE dueño=?", (session['dueño'],), True)
-    html = f'{CSS}<div class="card"><h2>Inventario</h2><table style="margin-bottom:20px"><tr><th>Producto</th><th>Precio</th><th>Stock</th></tr>{"".join([f"<tr><td>{p['nombre']}</td><td>${p['precio']}</td><td>{p['stock'] if p['stock'] is not None else '∞'}</td></tr>" for p in ps])}</table>'
-    if session['rango'] == 'Dueño':
-        html += '<div style="border-top:1px solid var(--border); padding-top:15px"><h3>Añadir Nuevo</h3><form action="/save_prod" method="POST"><input name="n" placeholder="Nombre del producto"><input name="p" type="number" step="0.01" placeholder="Precio"><input name="s" type="number" placeholder="Stock (Vacío para ∞)"><select name="u"><option value="Pza">Por Pieza</option><option value="Kg">Por Kilo (Monto libre)</option></select><button>REGISTRAR PRODUCTO</button></form></div>'
-    html += '<a href="/hub" class="btn-nav">Volver</a></div>'
-    return html
+    if 'user' not in session: return redirect('/')
+    prods = query_db("SELECT * FROM productos WHERE dueño_id = ?", (session['dueño'],))
+    items = ""
+    for p in prods:
+        items += f'''<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+            <div style="text-align:left;"><b>{p['nombre']}</b><br><small style="color:#4dd0e1;">${p['precio']}</small></div>
+            <a href="/eliminar_producto/{p['id']}" onclick="return confirm('¿Eliminar producto?')" style="background:#ff5252;padding:5px 8px;border-radius:5px;text-decoration:none;color:white;font-size:0.8em;">BORRAR</a>
+        </div>'''
+    return f'''{CSS}<div class="card"><h2>Inventario</h2><form action="/agregar_producto" method="post">
+        <input name="nombre" placeholder="NOMBRE PRODUCTO" required style="text-transform:uppercase;">
+        <input name="precio" type="number" step="0.01" placeholder="PRECIO" required>
+        <button type="submit" class="btn-pos" style="margin-top:10px;">+ AGREGAR AL STOCK</button></form>
+        <div style="margin-top:20px;">{items if items else "<p style='color:#666;'>Inventario vacío.</p>"}</div>
+        <a href="/hub" class="btn-nav" style="margin-top:20px;background:#2c3e50;">Volver</a></div>'''
 
-@app.route('/save_prod', methods=['POST'])
-def save_prod():
-    query_db("INSERT INTO productos (nombre, precio, stock, unidad, dueño) VALUES (?,?,?,?,?)", (request.form['n'], request.form['p'], request.form['s'] or None, request.form['u'], session['dueño']))
+@app.route('/agregar_producto', methods=['POST'])
+def agregar_producto():
+    if 'user' not in session: return redirect('/')
+    query_db("INSERT INTO productos (nombre, precio, dueño_id) VALUES (?,?,?)", 
+             (request.form['nombre'].upper(), request.form['precio'], session['dueño']))
     return redirect('/inventario')
+
+@app.route('/eliminar_producto/<int:id>')
+def eliminar_producto(id):
+    if 'user' not in session: return redirect('/')
+    query_db("DELETE FROM productos WHERE id = ? AND dueño_id = ?", (id, session['dueño']))
+    return redirect('/inventario')
+    
 
 # --- GASTOS Y PERSONAL ---
 @app.route('/proveedores')
 def proveedores():
-    pagos = query_db("SELECT * FROM pagos WHERE dueño=? ORDER BY id DESC", (session['dueño'],), True)
-    return f'{CSS}<div class="card"><h2>Gastos / Proveedores</h2><form action="/add_pago" method="POST"><input name="con" placeholder="Concepto (ej: Sabritas)"><input name="mon" type="number" step="0.01" placeholder="Monto Pagado"><button style="background:#f59e0b; color:black">REGISTRAR SALIDA</button></form><h3>Gastos de Hoy</h3><table>{"".join([f"<tr><td>{p['concepto']}</td><td style='color:#f43f5e; font-weight:bold'>-${p['monto']}</td></tr>" for p in pagos])}</table><a href="/hub" class="btn-nav">Volver</a></div>'
+    if 'user' not in session: return redirect('/')
+    pagos = query_db("SELECT * FROM pagos WHERE dueño = ?", (session['dueño'],))
+    lista_p = "".join([f'<div style="border-bottom:1px solid #333;padding:5px;">{pg["concepto"]} - ${pg["monto"]}</div>' for pg in pagos])
+    return f'''{CSS}<div class="card"><h2>Gastos</h2><form action="/registrar_pago" method="post">
+        <input name="concepto" placeholder="CONCEPTO" required style="text-transform:uppercase;">
+        <input name="monto" type="number" step="0.01" placeholder="MONTO $" required>
+        <button type="submit" class="btn-pos" style="margin-top:10px;">GUARDAR GASTO</button></form>
+        <div style="margin-top:20px;">{lista_p}</div><a href="/hub" class="btn-nav" style="margin-top:20px;">Volver</a></div>'''
 
-@app.route('/add_pago', methods=['POST'])
-def add_pago():
-    query_db("INSERT INTO pagos (concepto, monto, fecha, responsable, dueño) VALUES (?,?,?,?,?)", (request.form['con'], request.form['mon'], datetime.now().strftime("%H:%M"), session['user'], session['dueño']))
+@app.route('/registrar_pago', methods=['POST'])
+def registrar_pago():
+    if 'user' not in session: return redirect('/')
+    query_db("INSERT INTO pagos (concepto, monto, responsable, dueño, fecha) VALUES (?,?,?,?,?)", 
+             (request.form['concepto'].upper(), request.form['monto'], session['user'], session['dueño'], datetime.now().strftime("%H:%M")))
     return redirect('/proveedores')
 
 @app.route('/gestion_personal')
 def gestion_personal():
-    lista = query_db("SELECT * FROM usuarios WHERE jefe=?", (session['clv'],), True)
-    return f'{CSS}<div class="card"><h2>Mi Personal</h2><table>{"".join([f"<tr><td>{u['nombre']}</td><td>Clave: <code>{u['clave']}</code></td></tr>" for u in lista])}</table><hr><form action="/crear_usuario" method="POST"><input name="n" placeholder="Nombre del Empleado"><button>CREAR ACCESO TRABAJADOR</button></form><a href="/hub" class="btn-nav">Volver</a></div>'
+    if 'user' not in session: return redirect('/')
+    personal = query_db("SELECT * FROM usuarios WHERE dueño_id = ?", (session['dueño'],))
+    lista = "".join([f'<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;margin-top:10px;display:flex;justify-content:space-between;"><span>👤 {p["usuario"]}</span><b>PIN: {p["clave"]}</b></div>' for p in personal])
+    return f'''{CSS}<div class="card"><h2>Personal</h2><form action="/crear_trabajador" method="post">
+        <input name="nombre" placeholder="NOMBRE" required style="text-transform:uppercase;">
+        <button type="submit" class="btn-pos" style="margin-top:10px;">CREAR ACCESO</button></form>
+        <div style="margin-top:20px;">{lista if lista else "<p>Sin personal.</p>"}</div>
+        <a href="/hub" class="btn-nav" style="margin-top:20px;">Volver</a></div>'''
 
-@app.route('/crear_usuario', methods=['POST'])
-def crear_usuario():
-    query_db("INSERT INTO usuarios VALUES (?,?,?,?)", (f"TR-{random.randint(1000,9999)}", request.form['n'], 'Trabajador', session['clv']))
+@app.route('/crear_trabajador', methods=['POST'])
+def crear_trabajador():
+    if 'user' not in session: return redirect('/')
+    query_db("INSERT INTO usuarios (usuario, clave, rol, dueño_id) VALUES (?, ?, 'trabajador', ?)", 
+             (request.form['nombre'].upper(), str(random.randint(1000, 9999)), session['dueño']))
     return redirect('/gestion_personal')
+    
+
+@app.route('/gestion_personal')
+def gestion_personal():
+    if 'user' not in session: return redirect('/')
+    personal = query_db("SELECT * FROM usuarios WHERE dueño_id = ?", (session['dueño'],))
+    lista_p = ""
+    for p in personal:
+        lista_p += f'''<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
+            <span>👤 {p['usuario']}</span><b style="color:#4dd0e1;">PIN: {p['clave']}</b>
+        </div>'''
+    return f'''{CSS}<div class="card"><h2>Mi Personal</h2><p style="font-size:0.8em;opacity:0.6;">Dueño: {session['user']}</p><hr><form action="/crear_trabajador" method="post">
+        <input name="nombre" placeholder="NOMBRE COMPLETO" required style="text-transform:uppercase;">
+        <button type="submit" class="btn-pos" style="margin-top:10px;">+ CREAR ACCESO</button></form>
+        <div style="margin-top:20px;text-align:left;"><h3 style="font-size:0.9em;color:#888;">TRABAJADORES:</h3>{lista_p if lista_p else "<p style='color:#666;'>No hay personal registrado.</p>"}</div>
+        <a href="/hub" class="btn-nav" style="margin-top:20px;background:#2c3e50;">Volver</a></div>'''
+
+@app.route('/crear_trabajador', methods=['POST'])
+def crear_trabajador():
+    if 'user' not in session: return redirect('/')
+    nombre = request.form['nombre'].upper()
+    pin = str(random.randint(1000, 9999))
+    query_db("INSERT INTO usuarios (usuario, clave, rol, dueño_id) VALUES (?, ?, 'trabajador', ?)", (nombre, pin, session['dueño']))
+    return redirect('/gestion_personal')
+    
 
 @app.route('/ajustes')
 def ajustes():
