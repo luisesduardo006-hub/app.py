@@ -190,11 +190,31 @@ def add_carro():
 @app.route('/pagar', methods=['POST'])
 def pagar():
     carro = session.get('carro', [])
+    if not carro: return redirect('/pos')
+    
+    conf = query_db("SELECT empresa FROM config WHERE dueño=?", (session['dueño'],), True)
+    empresa = conf[0]['empresa'] if conf else "MI NEGOCIO"
+    total = sum(i['s'] for i in carro)
+    
+    ticket_prod = ""
     for i in carro:
         query_db("UPDATE productos SET stock = stock - ? WHERE id = ? AND stock IS NOT NULL", (i['c'], i['id']))
         query_db("INSERT INTO ventas (total, fecha, detalle, vendedor, dueño) VALUES (?,?,?,?,?)", (i['s'], datetime.now().strftime("%H:%M"), i['n'], session['user'], session['dueño']))
+        ticket_prod += f"• {i['n']} ({i['c']}) ${i['s']}%0A"
+
+    mensaje = f"🧾 *TICKET DE VENTA*%0A"
+    mensaje += f"------------------------------%0A"
+    mensaje += f"🏪 *{empresa.upper()}*%0A"
+    mensaje += f"👤 Atendió: {session['user']}%0A"
+    mensaje += f"------------------------------%0A"
+    mensaje += ticket_prod
+    mensaje += f"------------------------------%0A"
+    mensaje += f"💰 *TOTAL: ${total}*%0A%0A"
+    mensaje += f"🙏 ¡Gracias por su compra!"
+
     session['carro'] = []
-    return redirect(f"https://api.whatsapp.com/send?phone={request.form['tel']}&text=Gracias por su compra. Total: ${sum(i['s'] for i in carro)}")
+    return redirect(f"https://api.whatsapp.com/send?phone={request.form['tel']}&text={mensaje}")
+    
 
 # --- CORTE E INVENTARIO ---
 @app.route('/corte')
