@@ -1,21 +1,18 @@
 import sqlite3
 import os
 import csv
-import io
 import random
 import string
 import urllib.parse
 from datetime import datetime, timedelta
-from flask import Flask, request, render_template_string, redirect, session, send_file
+from flask import Flask, request, redirect, session, send_file
 
 app = Flask(__name__)
-app.secret_key = 'modern_glass_system_2026'
+app.secret_key = 'reparacion_total_blindada_2026'
 
-# ==========================================
-# 1. NÚCLEO DE DATOS
-# ==========================================
+# --- MOTOR DE DATOS REPARADO ---
 
-def ejecutar_db(db_name, query, params=(), fetch=False, commit=True):
+def ejecutar_db(db_name, query, params=(), fetch=False):
     conn = sqlite3.connect(db_name)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -23,254 +20,152 @@ def ejecutar_db(db_name, query, params=(), fetch=False, commit=True):
         cursor.execute(query, params)
         if fetch:
             return cursor.fetchall()
-        if commit:
-            conn.commit()
+        conn.commit()
+    except Exception as e:
+        print(f"Error DB: {e}")
+        return []
     finally:
         conn.close()
 
-def db_init_global():
-    query = '''CREATE TABLE IF NOT EXISTS usuarios 
-               (clave TEXT PRIMARY KEY, nombre TEXT, rango TEXT, 
-                creado_por TEXT, estado TEXT, vencimiento TEXT)'''
-    ejecutar_db('usuarios_master.db', query)
-    ejecutar_db('usuarios_master.db', 
-                "INSERT OR IGNORE INTO usuarios VALUES (?,?,?,?,?,?)",
-                ("ROOT-99", "DIOS ADMIN", "Super Admin", "SISTEMA", "Activo", "2099-12-31 23:59:59"))
+def iniciar_sistema():
+    # Base maestra de accesos
+    ejecutar_db('usuarios_master.db', '''CREATE TABLE IF NOT EXISTS usuarios 
+               (clave TEXT PRIMARY KEY, nombre TEXT, rango TEXT, creado_por TEXT, estado TEXT, vencimiento TEXT)''')
+    ejecutar_db('usuarios_master.db', "INSERT OR IGNORE INTO usuarios VALUES (?,?,?,?,?,?)",
+                ("ROOT-99", "ADMIN MAESTRO", "Super Admin", "SISTEMA", "Activo", "2099-12-31 23:59:59"))
 
-def db_init_tienda(db_tienda):
-    queries = [
-        'CREATE TABLE IF NOT EXISTS productos (codigo TEXT PRIMARY KEY, nombre TEXT, precio REAL, stock REAL, unidad TEXT)',
-        'CREATE TABLE IF NOT EXISTS ventas (id INTEGER PRIMARY KEY AUTOINCREMENT, total REAL, fecha TEXT, vendedor TEXT)',
-        'CREATE TABLE IF NOT EXISTS gastos (id INTEGER PRIMARY KEY AUTOINCREMENT, concepto TEXT, monto REAL, fecha TEXT)',
-        'CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, nombre_negocio TEXT, whatsapp TEXT)'
-    ]
-    for q in queries: ejecutar_db(db_tienda, q)
-    check = ejecutar_db(db_tienda, "SELECT count(*) as c FROM configuracion", fetch=True)[0]
-    if check['c'] == 0:
-        ejecutar_db(db_tienda, "INSERT INTO configuracion (id, nombre_negocio, whatsapp) VALUES (1, 'Premium Store', '')")
+def db_negocio(u_clv, rango, creado):
+    clv = creado if rango == 'Trabajador' else u_clv
+    db = f"tienda_{clv}.db"
+    ejecutar_db(db, 'CREATE TABLE IF NOT EXISTS productos (codigo TEXT PRIMARY KEY, nombre TEXT, precio REAL, stock REAL, unidad TEXT)')
+    ejecutar_db(db, 'CREATE TABLE IF NOT EXISTS ventas (id INTEGER PRIMARY KEY AUTOINCREMENT, total REAL, fecha TEXT, vendedor TEXT)')
+    ejecutar_db(db, 'CREATE TABLE IF NOT EXISTS gastos (id INTEGER PRIMARY KEY AUTOINCREMENT, concepto TEXT, monto REAL, fecha TEXT)')
+    ejecutar_db(db, 'CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY, nombre_negocio TEXT, whatsapp TEXT)')
+    if not ejecutar_db(db, "SELECT * FROM configuracion", fetch=True):
+        ejecutar_db(db, "INSERT INTO configuracion (id, nombre_negocio, whatsapp) VALUES (1, 'Mi Negocio', '')")
+    return db
 
-# ==========================================
-# 2. DISEÑO MODERNO (GLASSMORPHISM)
-# ==========================================
+# --- INTERFAZ GLASSMORPHISM ---
 
 CSS = '''
 <style>
-    :root {
-        --primary: #6366f1;
-        --secondary: #a855f7;
-        --bg: #0f172a;
-        --card: rgba(30, 41, 59, 0.7);
-        --text: #f8fafc;
-        --accent: #22d3ee;
-    }
-    * { box-sizing: border-box; transition: all 0.3s ease; }
-    body { 
-        background: radial-gradient(circle at top left, #1e1b4b, #0f172a); 
-        color: var(--text); 
-        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
-        margin: 0; padding: 20px; display: flex; align-items: center; justify-content: center; min-height: 100vh;
-    }
-    .glass-card { 
-        background: var(--card); 
-        backdrop-filter: blur(12px); 
-        -webkit-backdrop-filter: blur(12px); 
-        border: 1px solid rgba(255, 255, 255, 0.1); 
-        border-radius: 24px; 
-        padding: 30px; 
-        width: 100%; max-width: 500px; 
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-    }
-    h2, h3 { margin-top: 0; background: linear-gradient(to right, var(--accent), var(--secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; }
-    input, select { 
-        background: rgba(15, 23, 42, 0.6); 
-        border: 1px solid rgba(255, 255, 255, 0.1); 
-        color: white; padding: 14px; width: 100%; border-radius: 12px; margin-bottom: 15px; font-size: 16px;
-    }
-    input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); }
-    button { 
-        background: linear-gradient(135deg, var(--primary), var(--secondary)); 
-        color: white; border: none; padding: 16px; width: 100%; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 16px; letter-spacing: 1px;
-    }
-    button:hover { transform: translateY(-2px); filter: brightness(1.1); box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.4); }
-    .nav-btn { 
-        display: block; text-decoration: none; color: #94a3b8; padding: 12px; border-radius: 12px; margin-bottom: 8px; border: 1px solid transparent; 
-    }
-    .nav-btn:hover { background: rgba(255, 255, 255, 0.05); color: var(--accent); border-color: rgba(34, 211, 238, 0.3); }
-    table { width: 100%; border-spacing: 0; margin-top: 20px; }
-    th { color: #64748b; font-size: 12px; text-transform: uppercase; padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    td { padding: 12px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
-    .badge { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; background: rgba(255,255,0,0.1); color: yellow; }
+    :root { --p: #6366f1; --s: #a855f7; --bg: #0f172a; --txt: #f8fafc; }
+    body { background: #0f172a; color: var(--txt); font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+    .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); padding: 2rem; border-radius: 20px; width: 90%; max-width: 400px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    h2 { background: linear-gradient(to right, #22d3ee, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0 0 1rem; }
+    input, select { background: rgba(0,0,0,0.3); border: 1px solid #334155; color: white; padding: 12px; width: 100%; border-radius: 10px; margin-bottom: 10px; }
+    button { background: linear-gradient(135deg, var(--p), var(--s)); color: white; border: none; padding: 14px; width: 100%; border-radius: 10px; font-weight: bold; cursor: pointer; }
+    .nav { display: block; text-decoration: none; color: #94a3b8; padding: 10px; border-radius: 8px; margin-bottom: 5px; border: 1px solid transparent; }
+    .nav:hover { background: rgba(255,255,255,0.05); color: #22d3ee; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    td, th { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: left; }
 </style>
 '''
 
-# ==========================================
-# 3. LÓGICA DE NEGOCIO
-# ==========================================
-
-def get_user(clv): return ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE clave=?", (clv,), True)
-
-def get_db(u): return f"tienda_{u['creado_por'] if u['rango']=='Trabajador' else u['clave']}.db"
+# --- RUTAS REPARADAS ---
 
 @app.route('/')
-def home():
+def login_view():
     session.clear()
-    return f'{CSS}<div class="glass-card"><h2>Modern POS</h2><p style="color:#64748b">Inicia sesión para continuar</p><form action="/auth" method="post"><input type="text" name="c" placeholder="Clave de acceso" required autofocus><button>ENTRAR</button></form></div>'
+    return f'{CSS}<div class="card"><h2>Acceso</h2><form action="/entrar" method="POST"><input name="c" placeholder="Clave de Acceso" required><button>INGRESAR</button></form></div>'
 
-@app.route('/auth', methods=['POST'])
-def auth():
-    res = get_user(request.form.get('c'))
-    if not res: return redirect('/')
-    u = res[0]
-    session['u'] = u['clave']
-    return redirect('/hub')
+@app.route('/entrar', methods=['POST'])
+def entrar():
+    clv = request.form.get('c')
+    res = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE clave=?", (clv,), True)
+    if res:
+        session['clv'] = clv
+        return redirect('/dashboard')
+    return redirect('/')
 
-@app.route('/hub')
-def hub():
-    if 'u' not in session: return redirect('/')
-    u = get_user(session['u'])[0]
-    db_t = get_db(u)
-    db_init_tienda(db_t)
-    conf = ejecutar_db(db_t, "SELECT * FROM configuracion WHERE id=1", fetch=True)[0]
+@app.route('/dashboard')
+def dashboard():
+    if 'clv' not in session: return redirect('/')
+    u = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE clave=?", (session['clv'],), True)[0]
+    db = db_negocio(u['clave'], u['rango'], u['creado_por'])
+    conf = ejecutar_db(db, "SELECT * FROM configuracion", fetch=True)[0]
     
-    html = f'{CSS}<div class="glass-card"><h3>{conf["nombre_negocio"]}</h3><p style="font-size:13px; color:#94a3b8">{u["nombre"]} • {u["rango"]}</p><hr style="opacity:0.1">'
+    html = f'{CSS}<div class="card"><h2>{conf["nombre_negocio"]}</h2><p style="color:#94a3b8; font-size:12px">{u["nombre"]} | {u["rango"]}</p><hr style="opacity:0.1">'
     
     if u['rango'] in ['Super Admin', 'Administrador']:
-        html += '<a href="/m_dueños" class="nav-btn">💎 Gestión de Clientes</a>'
-        if u['rango'] == 'Super Admin': html += '<a href="/m_personal" class="nav-btn">🛡️ Control de Admins</a>'
-    
+        html += '<a href="/clientes" class="nav">🏢 Gestionar Clientes</a>'
     elif u['rango'] in ['Dueño', 'Trabajador']:
-        html += '<a href="/pos" class="nav-btn">🛒 Terminal de Venta</a>'
-        html += '<a href="/stk" class="nav-btn">📦 Inventario Real</a>'
-        html += '<a href="/pay" class="nav-btn">💸 Pago de Servicios</a>'
+        html += '<a href="/caja" class="nav">🛒 Punto de Venta</a>'
+        html += '<a href="/inventario" class="nav">📦 Stock e Inventario</a>'
+        html += '<a href="/gastos" class="nav">💸 Gastos/Servicios</a>'
         if u['rango'] == 'Dueño':
-            html += '<a href="/m_personal" class="nav-btn">👥 Gestión de Personal</a>'
-            html += '<a href="/cfg" class="nav-btn">⚙️ Configuración</a>'
-            html += '<a href="/end" class="nav-btn" style="color:var(--accent)">🏁 Realizar Corte Final</a>'
-            
-    html += '<hr style="opacity:0.1"><a href="/" style="color:var(--danger); font-size:12px; text-decoration:none; display:block; text-align:center">Cerrar Sesión Segura</a></div>'
+            html += '<a href="/personal" class="nav">👥 Mis Empleados</a>'
+            html += '<a href="/config" class="nav">⚙️ Ajustes</a>'
+            html += '<a href="/corte" class="nav" style="color:#22d3ee">🏁 Realizar Corte</a>'
+    
+    html += '<hr style="opacity:0.1"><a href="/" style="color:#ef4444; font-size:12px; text-decoration:none">Cerrar Sesión</a></div>'
     return html
 
-@app.route('/pos')
-def pos():
-    u = get_user(session['u'])[0]
-    db_t = get_db(u)
-    prods = ejecutar_db(db_t, "SELECT * FROM productos WHERE stock > 0 ORDER BY nombre ASC", True)
+@app.route('/caja')
+def caja():
+    if 'clv' not in session: return redirect('/')
+    u = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE clave=?", (session['clv'],), True)[0]
+    db = db_negocio(u['clave'], u['rango'], u['creado_por'])
+    prods = ejecutar_db(db, "SELECT * FROM productos WHERE stock > 0", True)
     car = session.get('car', [])
-    tot = sum(i['s'] for i in car)
     
-    ops = "".join([f"<option value='{p['codigo']}'>{p['nombre']} (${p['precio']})</option>" for p in prods])
-    filas = "".join([f"<tr><td>{i['n']}</td><td>{i['c']}</td><td>${i['s']}</td></tr>" for i in car])
+    ops = "".join([f'<option value="{p["codigo"]}">{p["nombre"]} (${p["precio"]})</option>' for p in prods])
+    filas = "".join([f'<tr><td>{i["n"]}</td><td>{i["c"]}</td><td>${i["s"]}</td></tr>' for i in car])
     
-    return f'''{CSS}<div class="glass-card"><h3>🛒 Ventas</h3>
-    <form action="/add_car" method="post"><select name="id">{ops}</select><input type="number" step="0.1" name="q" placeholder="Cantidad"><button>Añadir al Carrito</button></form>
-    <table><tr><th>Producto</th><th>Cant.</th><th>Sub.</th></tr>{filas}</table>
-    <h3 style="text-align:right; margin-top:15px">Total: ${tot}</h3>
-    <a href="/checkout" class="btn-wa" style="background:var(--primary)">Confirmar Venta</a>
-    <a href="/hub" class="nav-btn" style="text-align:center">Regresar</a></div>'''
+    return f'''{CSS}<div class="card"><h2>Carrito</h2>
+    <form action="/add" method="POST"><select name="id">{ops}</select><input name="q" type="number" step="0.1" placeholder="Cantidad"><button>Añadir</button></form>
+    <table>{filas}</table><h3 style="text-align:right">${sum(i["s"] for i in car)}</h3>
+    <a href="/cobrar" style="background:var(--p); color:white; text-decoration:none; display:block; text-align:center; padding:12px; border-radius:10px; font-weight:bold">COBRAR</a>
+    <a href="/dashboard" class="nav" style="text-align:center; margin-top:10px">Volver</a></div>'''
 
-@app.route('/add_car', methods=['POST'])
-def add_car():
-    u = get_user(session['u'])[0]
-    p = ejecutar_db(get_db(u), "SELECT * FROM productos WHERE codigo=?", (request.form['id'],), True)[0]
+@app.route('/add', methods=['POST'])
+def add():
+    u = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE clave=?", (session['clv'],), True)[0]
+    p = ejecutar_db(db_negocio(u['clave'], u['rango'], u['creado_por']), "SELECT * FROM productos WHERE codigo=?", (request.form['id'],), True)[0]
     q = float(request.form['q'] or 1)
     car = session.get('car', [])
     car.append({'id': p['codigo'], 'n': p['nombre'], 'c': q, 's': round(p['precio']*q, 2)})
     session['car'] = car
-    return redirect('/pos')
+    return redirect('/caja')
 
-@app.route('/checkout')
-def checkout():
-    u = get_user(session['u'])[0]
-    db_t = get_db(u)
+@app.route('/cobrar')
+def cobrar():
+    if 'clv' not in session: return redirect('/')
+    u = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE clave=?", (session['clv'],), True)[0]
+    db = db_negocio(u['clave'], u['rango'], u['creado_por'])
     car = session.get('car', [])
-    if not car: return redirect('/pos')
+    if not car: return redirect('/caja')
     
-    t_venta = sum(i['s'] for i in car)
-    ticket = f"✨ *{u['nombre'].upper()}* \n----------------\n"
+    ticket = f"🧾 *TICKET* \n"
     for i in car:
-        ejecutar_db(db_t, "UPDATE productos SET stock=stock-? WHERE codigo=?", (i['c'], i['id']))
-        ejecutar_db(db_t, "INSERT INTO ventas (total, fecha, vendedor) VALUES (?,?,?)", (i['s'], datetime.now().strftime("%H:%M"), u['nombre']))
-        ticket += f"🔹 {i['n']} (x{i['c']}) ${i['s']}\n"
+        ejecutar_db(db, "UPDATE productos SET stock=stock-? WHERE codigo=?", (i['c'], i['id']))
+        ejecutar_db(db, "INSERT INTO ventas (total, fecha, vendedor) VALUES (?,?,?)", (i['s'], datetime.now().strftime("%H:%M"), u['nombre']))
+        ticket += f"• {i['n']} x{i['c']} ${i['s']}\n"
     
-    ticket += f"----------------\n✅ *TOTAL: ${t_venta}*"
-    conf = ejecutar_db(db_t, "SELECT whatsapp FROM configuracion", fetch=True)[0]
+    conf = ejecutar_db(db, "SELECT whatsapp FROM configuracion", True)[0]
     session['car'] = []
-    url = f"https://api.whatsapp.com/send?phone={conf['whatsapp']}&text={urllib.parse.quote(ticket)}"
-    return f"{CSS}<div class='glass-card'><h3>Venta Exitosa</h3><a href='{url}' target='_blank' class='btn-wa'>Enviar Ticket Digital</a><a href='/pos' class='nav-btn' style='text-align:center'>Siguiente Venta</a></div>"
+    url = f"https://api.whatsapp.com/send?phone={conf['whatsapp']}&text={urllib.parse.quote(ticket + f'TOTAL: ${sum(i["s"] for i in car)}')}"
+    return f"{CSS}<div class='card'><h2>Éxito</h2><a href='{url}' target='_blank' class='nav'>Enviar WhatsApp</a><a href='/caja' class='nav'>Nueva Venta</a></div>"
 
-@app.route('/stk')
-def stk():
-    u = get_user(session['u'])[0]
-    db_t = get_db(u)
-    prods = ejecutar_db(db_t, "SELECT * FROM productos ORDER BY nombre ASC", True)
+@app.route('/inventario')
+def inventario():
+    if 'clv' not in session: return redirect('/')
+    u = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE clave=?", (session['clv'],), True)[0]
+    db = db_negocio(u['clave'], u['rango'], u['creado_por'])
+    prods = ejecutar_db(db, "SELECT * const FROM productos", True)
     filas = "".join([f"<tr><td>{p['nombre']}</td><td>${p['precio']}</td><td>{p['stock']}</td></tr>" for p in prods])
     
-    add = f'<hr style="opacity:0.1"><form action="/p_save" method="post"><input name="c" placeholder="Código"><input name="n" placeholder="Nombre"><input name="p" placeholder="Precio"><input name="s" placeholder="Stock"><button>Actualizar Stock</button></form>' if u['rango']=='Dueño' else ""
-    return f'{CSS}<div class="glass-card" style="max-width:600px"><h3>📦 Inventario</h3><table><tr><th>Item</th><th>Precio</th><th>Stock</th></tr>{filas}</table>{add}<a href="/hub" class="nav-btn" style="text-align:center">Regresar</a></div>'
+    form = f'<hr><form action="/p_save" method="POST"><input name="c" placeholder="Cod"><input name="n" placeholder="Nom"><input name="p" placeholder="Pre"><input name="s" placeholder="Stk"><button>Guardar</button></form>' if u['rango'] == 'Dueño' else ""
+    return f'{CSS}<div class="card"><h2>Stock</h2><table>{filas}</table>{form}<a href="/dashboard" class="nav">Volver</a></div>'
 
 @app.route('/p_save', methods=['POST'])
 def p_save():
-    u = get_user(session['u'])[0]
-    ejecutar_db(get_db(u), "INSERT OR REPLACE INTO productos VALUES (?,?,?,?,?)", (request.form['c'], request.form['n'], request.form['p'], request.form['s'], 'PZ'))
-    return redirect('/stk')
+    u = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE clave=?", (session['clv'],), True)[0]
+    ejecutar_db(db_negocio(u['clave'], u['rango'], u['creado_por']), "INSERT OR REPLACE INTO productos VALUES (?,?,?,?,?)", (request.form['c'], request.form['n'], request.form['p'], request.form['s'], 'PZ'))
+    return redirect('/inventario')
 
-@app.route('/pay', methods=['GET', 'POST'])
-def pay():
-    u = get_user(session['u'])[0]
-    db_t = get_db(u)
-    if request.method == 'POST':
-        ejecutar_db(db_t, "INSERT INTO gastos (concepto, monto, fecha) VALUES (?,?,?)", (request.form['c'], request.form['m'], datetime.now().strftime("%Y-%m-%d")))
-    
-    gs = ejecutar_db(db_t, "SELECT * FROM gastos ORDER BY id DESC LIMIT 5", True)
-    filas = "".join([f"<tr><td>{g['concepto']}</td><td>${g['monto']}</td></tr>" for g in gs])
-    return f'''{CSS}<div class="glass-card"><h3>💸 Gastos</h3><form method="post"><input name="c" placeholder="Concepto"><input name="m" type="number" placeholder="Monto $"><button>Registrar Pago</button></form><table>{filas}</table><a href="/hub" class="nav-btn" style="text-align:center">Regresar</a></div>'''
-
-@app.route('/m_personal')
-def m_personal():
-    u = get_user(session['u'])[0]
-    target = "Administrador" if u['rango'] == "Super Admin" else "Trabajador"
-    pers = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE creado_por=?", (u['clave'],), True)
-    filas = "".join([f"<tr><td>{p['nombre']}</td><td><span class='badge'>{p['clave']}</span></td></tr>" for p in pers])
-    return f'''{CSS}<div class="glass-card"><h3>👥 {target}es</h3><table>{filas}</table><hr style="opacity:0.1"><form action="/u_add" method="post"><input name="n" placeholder="Nombre completo"><input type="hidden" name="r" value="{target}"><button>Crear Acceso</button></form><a href="/hub" class="nav-btn" style="text-align:center">Regresar</a></div>'''
-
-@app.route('/m_dueños')
-def m_dueños():
-    u = get_user(session['u'])[0]
-    ds = ejecutar_db('usuarios_master.db', "SELECT * FROM usuarios WHERE rango='Dueño'", True)
-    filas = "".join([f"<tr><td>{d['nombre']}</td><td><span class='badge'>{d['clave']}</span></td></tr>" for d in ds])
-    return f'''{CSS}<div class="glass-card"><h3>💎 Dueños</h3><table>{filas}</table><hr style="opacity:0.1"><form action="/u_add" method="post"><input name="n" placeholder="Nombre del Negocio"><input type="hidden" name="r" value="Dueño"><button>Activar Nuevo Dueño</button></form><a href="/hub" class="nav-btn" style="text-align:center">Regresar</a></div>'''
-
-@app.route('/u_add', methods=['POST'])
-def u_add():
-    j = get_user(session['u'])[0]
-    clv = f"{request.form['r'][:3].upper()}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=4))}"
-    v = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S") if request.form['r'] == "Dueño" else "2099-12-31 23:59:59"
-    ejecutar_db('usuarios_master.db', "INSERT INTO usuarios VALUES (?,?,?,?,?,?)", (clv, request.form['n'], request.form['r'], j['clave'], "Activo", v))
-    return redirect('/m_dueños' if request.form['r']=="Dueño" else '/m_personal')
-
-@app.route('/cfg', methods=['GET', 'POST'])
-def cfg():
-    u = get_user(session['u'])[0]
-    db_t = get_db(u)
-    if request.method == 'POST':
-        ejecutar_db(db_t, "UPDATE configuracion SET nombre_negocio=?, whatsapp=? WHERE id=1", (request.form['n'], request.form['w']))
-        return redirect('/hub')
-    c = ejecutar_db(db_t, "SELECT * FROM configuracion", True)[0]
-    return f'''{CSS}<div class="glass-card"><h3>⚙️ Perfil</h3><form method="post"><input name="n" value="{c['nombre_negocio']}"><input name="w" value="{c['whatsapp']}" placeholder="WhatsApp (521...)"><button>Guardar</button></form><a href="/hub" class="nav-btn" style="text-align:center">Regresar</a></div>'''
-
-@app.route('/end')
-def end():
-    u = get_user(session['u'])[0]
-    db_t = get_db(u)
-    v = ejecutar_db(db_t, "SELECT sum(total) as s FROM ventas", True)[0]['s'] or 0
-    g = ejecutar_db(db_t, "SELECT sum(monto) as s FROM gastos", True)[0]['s'] or 0
-    msg = f"🏁 *CORTE DE CAJA*\n💰 Ventas: ${v}\n💸 Gastos: ${g}\n📈 Neto: ${v-g}"
-    ejecutar_db(db_t, "DELETE FROM ventas"); ejecutar_db(db_t, "DELETE FROM gastos")
-    c = ejecutar_db(db_t, "SELECT whatsapp FROM configuracion", True)[0]
-    url = f"https://api.whatsapp.com/send?phone={c['whatsapp']}&text={urllib.parse.quote(msg)}"
-    return f"{CSS}<div class='glass-card'><h3>Corte Finalizado</h3><p style='color:#94a3b8'>{msg.replace('\n','<br>')}</p><a href='{url}' target='_blank' class='btn-wa'>Enviar Reporte</a><a href='/hub' class='nav-btn' style='text-align:center'>Finalizar</a></div>"
-
+# --- INICIO ---
 if __name__ == "__main__":
-    db_init_global()
+    iniciar_sistema()
     app.run(host='0.0.0.0', port=10000)
     
