@@ -4,14 +4,12 @@ import urllib.parse
 import random
 import string
 import os
-import csv
-import io
-from flask import Flask, request, render_template_string, redirect, session, send_file
+from flask import Flask, request, render_template_string, redirect, session
 
 app = Flask(__name__)
-app.secret_key = 'sistema_omni_v12_oficial'
+app.secret_key = 'sistema_omni_v12_integridad_total'
 
-# --- CONFIGURACIÓN DE BASES DE DATOS (MANTENIENDO JERARQUÍA) ---
+# --- CONFIGURACIÓN DE BASES DE DATOS (ESTRUCTURA ORIGINAL) ---
 
 def iniciar_db_usuarios():
     conn = sqlite3.connect('usuarios_sistema.db')
@@ -21,7 +19,6 @@ def iniciar_db_usuarios():
                      (clave TEXT PRIMARY KEY, nombre TEXT, rango TEXT, 
                       creado_por TEXT, estado TEXT, vencimiento TEXT, 
                       reactivaciones INTEGER DEFAULT 0)''')
-        # Clave maestra original
         conn.execute("INSERT OR REPLACE INTO usuarios (clave, nombre, rango, creado_por, estado, vencimiento, reactivaciones) VALUES (?, ?, ?, ?, ?, ?, ?)", 
                      ("ROOT-XYZ7", "SUPER ADMIN", "Super Admin", "SISTEMA", "Activo", "2099-12-31 23:59:59", 0))
     return conn
@@ -34,24 +31,13 @@ def iniciar_db_tienda(nombre_db):
                      (codigo TEXT PRIMARY KEY, nombre TEXT, precio REAL, stock REAL, unidad TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS ventas 
                      (id INTEGER PRIMARY KEY AUTOINCREMENT, total REAL, fecha TEXT, vendedor TEXT)''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS gastos 
-                     (id INTEGER PRIMARY KEY AUTOINCREMENT, concepto TEXT, monto REAL, fecha TEXT)''')
         conn.execute('''CREATE TABLE IF NOT EXISTS configuracion 
                      (id INTEGER PRIMARY KEY, nombre_negocio TEXT, telefono_dueno TEXT, hora_corte TEXT DEFAULT '21:00')''')
-        
         if conn.execute("SELECT COUNT(*) FROM configuracion").fetchone()[0] == 0:
             conn.execute("INSERT INTO configuracion (id, nombre_negocio, telefono_dueno) VALUES (1, 'MI TIENDA', '')")
     return conn
 
-# --- UTILIDADES, DISEÑO Y BUSCADOR ---
-
-def tiempo_restante(fecha_vence_str):
-    try:
-        vence = datetime.strptime(fecha_vence_str, "%Y-%m-%d %H:%M:%S")
-        dif = vence - datetime.now()
-        if dif.total_seconds() <= 0: return "❌ VENCIDO"
-        return f"⏳ {dif.days}d {dif.seconds // 3600}h"
-    except: return "S/N"
+# --- DISEÑO Y UTILIDADES ---
 
 CSS = '''
 <style>
@@ -63,75 +49,92 @@ CSS = '''
     button { background: #0f0; color: #000; border: none; padding: 15px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 5px; }
     table { width: 100%; border-collapse: collapse; margin-top: 15px; }
     th, td { border: 1px solid #0f0; padding: 10px; text-align: left; }
-    .btn-rojo { background: #f00; color: #fff; padding: 5px 10px; text-decoration: none; border-radius: 3px; }
-    .btn-pagar { background: #0f0; color: #000; padding: 5px 10px; text-decoration: none; font-weight: bold; border-radius: 3px; }
+    .clv-destaque { color: yellow; font-weight: bold; }
     .btn-volver { border: 1px solid #0f0; color: #0f0; padding: 12px; display: block; text-align: center; text-decoration: none; margin-top: 15px; }
 </style>
 <script>
     function buscarProducto() {
         let input = document.getElementById('search').value.toLowerCase();
         let select = document.getElementById('prod_select');
-        let options = select.options;
-        for (let i = 0; i < options.length; i++) {
-            let text = options[i].text.toLowerCase();
-            options[i].style.display = text.includes(input) ? '' : 'none';
+        for (let i = 0; i < select.options.length; i++) {
+            let text = select.options[i].text.toLowerCase();
+            select.options[i].style.display = text.includes(input) ? '' : 'none';
         }
     }
 </script>
 '''
 
-# --- RUTAS PRINCIPALES (CON PROTECCIÓN DE RANGOS) ---
+# --- LÓGICA DE RUTAS ---
 
 @app.route('/')
-def login_screen():
+def login():
     session.clear()
-    return f'''{CSS}<div class="menu-box"><h3>🔑 ACCESO AL SISTEMA</h3>
-    <form action="/verificar" method="post"><input type="text" name="clave" placeholder="INGRESE CLAVE" autofocus required><button type="submit">ENTRAR</button></form></div>'''
+    return f'{CSS}<div class="menu-box"><h3>🔑 ACCESO</h3><form action="/verificar" method="post"><input name="clave" placeholder="CLAVE" required autofocus><button>ENTRAR</button></form></div>'
 
-@app.route('/verificar', methods=['GET', 'POST'])
+@app.route('/verificar', methods=['POST'])
 def verificar():
-    clave = request.form.get('clave') or session.get('usuario_clave')
-    if not clave: return redirect('/')
-
+    clave = request.form.get('clave')
     db_u = iniciar_db_usuarios()
     user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
-    
     if user:
-        # Validación de vencimiento
-        vence_str = user['vencimiento']
-        if user['rango'] == 'Trabajador':
-            dueno = db_u.execute("SELECT vencimiento FROM usuarios WHERE clave = ?", (user['creado_por'],)).fetchone()
-            vence_str = dueno['vencimiento']
-        
-        v_dt = datetime.strptime(vence_str, "%Y-%m-%d %H:%M:%S")
-        if (datetime.now() > v_dt and user['rango'] != 'Super Admin') or user['estado'] != "Activo":
-            return f"{CSS}<div class='menu-box'><h2 style='color:red'>🛑 ACCESO BLOQUEADO</h2><p>Vencido o Suspendido.</p><a href='/' class='btn-volver'>VOLVER</a></div>"
-
         session['usuario_clave'] = clave
         db_n = f"tienda_{user['creado_por']}.db" if user['rango'] == 'Trabajador' else f"tienda_{user['clave']}.db"
         db_t = iniciar_db_tienda(db_n)
         conf = db_t.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
-
-        menu = f"{CSS}<div class='menu-box'><h3>--- {conf['nombre_negocio']} ---</h3><p>👤 {user['nombre']} | 🏷️ {user['rango']}</p><hr>"
         
-        if user['rango'] in ['Super Admin', 'Administrador']:
-            menu += f'<a class="opcion" href="/gestionar_negocios/{clave}">📊 GESTIONAR DUEÑOS</a>'
-            if user['rango'] == 'Super Admin':
-                menu += f'<a class="opcion" href="/usuarios/{clave}">👥 CONTROL ADMINS</a>'
+        menu = f"{CSS}<div class='menu-box'><h3>--- {conf['nombre_negocio']} ---</h3><p>👤 {user['nombre']} | {user['rango']}</p><hr>"
+        
+        # Super Admin: Recuperada gestión de Dueños y Admins
+        if user['rango'] == 'Super Admin':
+            menu += f'<a class="opcion" href="/gestionar_negocios/{clave}">📊 GESTIONAR TODOS LOS DUEÑOS</a>'
+            menu += f'<a class="opcion" href="/usuarios/{clave}">👥 GESTIONAR ADMINISTRADORES</a>'
+        
+        elif user['rango'] == 'Administrador':
+            menu += f'<a class="opcion" href="/gestionar_negocios/{clave}">📊 GESTIONAR MIS DUEÑOS</a>'
         
         elif user['rango'] in ['Dueño', 'Trabajador']:
-            menu += '<a class="opcion" href="/venta">🛒 CAJA DE COBRO</a>'
+            menu += '<a class="opcion" href="/venta">🛒 ABRIR CAJA</a>'
             menu += f'<a class="opcion" href="/inventario/{clave}">📦 INVENTARIO</a>'
             if user['rango'] == 'Dueño':
-                menu += f'<a class="opcion" href="/usuarios/{clave}">👥 MIS EMPLEADOS</a>'
-                menu += f'<a class="opcion" href="/config_corte/{clave}">⚙️ CONFIGURACIÓN</a>'
-                menu += f'<a class="opcion" href="/hacer_corte_final/{clave}" onclick="return confirm(\'¿Hacer corte?\')">🏁 REALIZAR CORTE</a>'
+                menu += f'<a class="opcion" href="/usuarios/{clave}">👥 GESTIONAR EMPLEADOS</a>'
         
-        menu += '<hr><a class="opcion" href="/" style="text-align:center; color:red;">🚪 SALIR</a></div>'
+        menu += '<hr><a class="opcion" href="/" style="color:red;">🚪 SALIR</a></div>'
         return menu
     return redirect('/')
 
-# --- CAJA DE COBRO (CON BUSCADOR Y ORDEN ALFABÉTICO) ---
+# --- GESTIÓN DE USUARIOS (DUEÑOS Y EMPLEADOS) CON CLAVES ---
+
+@app.route('/gestionar_negocios/<clave>')
+def gestionar_negocios(clave):
+    db_u = iniciar_db_usuarios()
+    duenos = db_u.execute("SELECT * FROM usuarios WHERE rango = 'Dueño' ORDER BY nombre ASC").fetchall()
+    tabla = "<table><tr><th>DUEÑO</th><th>CLAVE ACCESO</th><th>ESTADO</th></tr>"
+    for d in duenos:
+        tabla += f"<tr><td>{d['nombre']}</td><td class='clv-destaque'>{d['clave']}</td><td>{d['estado']}</td></tr>"
+    return f"{CSS}<div class='menu-box'><h3>🏢 LISTA DE DUEÑOS</h3>{tabla}</table><hr><form action='/add_user' method='post'><input type='hidden' name='admin_clave' value='{clave}'><input type='hidden' name='rango' value='Dueño'><input name='nombre' placeholder='Nombre del Negocio' required><button>CREAR DUEÑO</button></form><a href='/verificar' class='btn-volver'>VOLVER</a></div>"
+
+@app.route('/usuarios/<clave>')
+def gestionar_usuarios(clave):
+    db_u = iniciar_db_usuarios()
+    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
+    
+    # Determinar qué tipo de usuario se gestiona según el rango del que consulta
+    if user['rango'] == "Super Admin":
+        items = db_u.execute("SELECT * FROM usuarios WHERE rango = 'Administrador' ORDER BY nombre ASC").fetchall()
+        tipo = "Administradores"
+        r_crear = "Administrador"
+    else:
+        items = db_u.execute("SELECT * FROM usuarios WHERE creado_por = ? ORDER BY nombre ASC", (clave,)).fetchall()
+        tipo = "Empleados"
+        r_crear = "Trabajador"
+
+    tabla = "<table><tr><th>NOMBRE</th><th>CLAVE ACCESO</th><th>ESTADO</th></tr>"
+    for i in items:
+        tabla += f"<tr><td>{i['nombre']}</td><td class='clv-destaque'>{i['clave']}</td><td>{i['estado']}</td></tr>"
+    
+    return f"{CSS}<div class='menu-box'><h3>👥 GESTIÓN DE {tipo.upper()}</h3>{tabla}</table><hr><form action='/add_user' method='post'><input type='hidden' name='admin_clave' value='{clave}'><input type='hidden' name='rango' value='{r_crear}'><input name='nombre' placeholder='Nombre Completo' required><button>CREAR NUEVO</button></form><a href='/verificar' class='btn-volver'>VOLVER</a></div>"
+
+# --- VENTA Y WHATSAPP ---
 
 @app.route('/venta')
 def vista_venta():
@@ -140,13 +143,11 @@ def vista_venta():
     u = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clv,)).fetchone()
     db_n = f"tienda_{u['creado_por']}.db" if u['rango'] == 'Trabajador' else f"tienda_{u['clave']}.db"
     db = iniciar_db_tienda(db_n)
-    
-    # ORDENAR POR NOMBRE (ABC)
     prods = db.execute("SELECT * FROM productos WHERE stock > 0 ORDER BY nombre ASC").fetchall()
     opcs = "".join([f"<option value='{p['codigo']}'>{p['nombre']} (${p['precio']})</option>" for p in prods])
     
     car = session.get('carrito', [])
-    tabla = "<table>" + "".join([f"<tr><td>{i['n']}</td><td>x{i['c']}</td><td>${i['s']}</td></tr>" for i in car]) + "</table>"
+    total = sum(i['s'] for i in car)
     
     return f'''{CSS}<div class="menu-box"><h3>🛒 CAJA</h3>
     <input type="text" id="search" placeholder="🔍 BUSCAR PRODUCTO..." onkeyup="buscarProducto()">
@@ -155,116 +156,52 @@ def vista_venta():
         <input type="number" step="0.1" name="cnt" placeholder="CANTIDAD" required>
         <button type="submit">AÑADIR</button>
     </form>
-    {tabla}<h4>TOTAL: ${sum(i['s'] for i in car)}</h4>
-    <a href="/cobrar" class="btn-pagar">COBRAR</a>
+    <h4>TOTAL: ${total}</h4>
+    <a href="/cobrar_ws" class="btn-pagar" style="background:#25D366; color:white; display:block; text-align:center; padding:15px; text-decoration:none;">📱 COBRAR Y ENVIAR WHATSAPP</a>
     <a href="/verificar" class="btn-volver">VOLVER</a></div>'''
 
-# --- GESTIÓN DE DUEÑOS Y EMPLEADOS (CON PREFIJOS DE CLAVE) ---
+@app.route('/cobrar_ws')
+def cobrar_ws():
+    clv = session.get('usuario_clave')
+    car = session.get('carrito', [])
+    if not car: return redirect('/venta')
+    
+    db_u = iniciar_db_usuarios()
+    u = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clv,)).fetchone()
+    db_n = f"tienda_{u['creado_por']}.db" if u['rango'] == 'Trabajador' else f"tienda_{u['clave']}.db"
+    db = iniciar_db_tienda(db_n)
+    conf = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
+    
+    # Generar texto del ticket
+    ticket = f"*--- {conf['nombre_negocio']} ---*\n"
+    total = 0
+    with db:
+        for i in car:
+            db.execute("UPDATE productos SET stock = stock - ? WHERE codigo = ?", (i['c'], i['id']))
+            db.execute("INSERT INTO ventas (total, fecha, vendedor) VALUES (?,?,?)", (i['s'], datetime.now().strftime("%Y-%m-%d %H:%M"), u['nombre']))
+            ticket += f"• {i['n']} x{i['c']}: ${i['s']}\n"
+            total += i['s']
+    
+    ticket += f"\n*TOTAL: ${total}*\nAtendió: {u['nombre']}"
+    session['carrito'] = []
+    
+    # Link de WhatsApp
+    ws_link = f"https://wa.me/{conf['telefono_dueno']}?text={urllib.parse.quote(ticket)}"
+    return redirect(ws_link)
+
+# --- GENERACIÓN DE CLAVES ---
 
 @app.route('/add_user', methods=['POST'])
 def add_user():
     adm, nom, rango = request.form['admin_clave'], request.form['nombre'], request.form['rango']
-    prefijo = "DUE" if rango == "Dueño" else ("ADM" if rango == "Administrador" else "TRA")
-    clv = f"{prefijo}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=5))}"
-    vence = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S") if rango == 'Dueño' else "2099-12-31 23:59:59"
+    pref = "DUE" if rango == "Dueño" else ("ADM" if rango == "Administrador" else "TRA")
+    clv = f"{pref}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=5))}"
     with iniciar_db_usuarios() as db:
-        db.execute("INSERT INTO usuarios (clave, nombre, rango, creado_por, estado, vencimiento) VALUES (?,?,?,?,?,?)", (clv, nom, rango, adm, "Activo", vence))
-    return f"{CSS}<div class='menu-box'><h3>✅ CLAVE GENERADA: {clv}</h3><a href='/verificar' class='btn-volver'>VOLVER</a></div>"
-
-@app.route('/gestionar_negocios/<clave>')
-def gestionar_negocios(clave):
-    db_u = iniciar_db_usuarios()
-    duenos = db_u.execute("SELECT * FROM usuarios WHERE rango = 'Dueño' ORDER BY vencimiento ASC").fetchall()
-    tabla = "<table><tr><th>DUEÑO</th><th>TIEMPO</th><th>ACCIÓN</th></tr>"
-    for d in duenos:
-        timer = tiempo_restante(d['vencimiento'])
-        tabla += f'<tr><td>{d["nombre"]}</td><td>{timer}</td><td><a href="/renovar/{clave}/{d["clave"]}" class="btn-pagar">+30 D</a> <a href="/status_cascada/{clave}/{d["clave"]}" class="btn-rojo">SUSP</a></td></tr>'
-    return f'{CSS}<div class="menu-box"><h3>🏢 DUEÑOS</h3>{tabla}</table><hr><form action="/add_user" method="post"><input type="hidden" name="admin_clave" value="{clave}"><input type="hidden" name="rango" value="Dueño"><input name="nombre" placeholder="Nombre Negocio" required><button type="submit">CREAR DUEÑO</button></form><a href="/verificar" class="btn-volver">VOLVER</a></div>'
-
-# --- FUNCIONES DE TIENDA RESTAURADAS ---
-
-@app.route('/inventario/<clave>')
-def inventario(clave):
-    db_u = iniciar_db_usuarios()
-    u = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
-    db_n = f"tienda_{u['creado_por']}.db" if u['rango'] == 'Trabajador' else f"tienda_{u['clave']}.db"
-    db = iniciar_db_tienda(db_n)
-    prods = db.execute("SELECT * FROM productos ORDER BY nombre ASC").fetchall()
-    tabla = "<table><tr><th>COD</th><th>PRODUCTO</th><th>STOCK</th></tr>" + "".join([f"<tr><td>{p['codigo']}</td><td>{p['nombre']} (${p['precio']})</td><td>{p['stock']} {p['unidad']}</td></tr>" for p in prods]) + "</table>"
-    form = f'<hr><form action="/add_p" method="post"><input type="hidden" name="cl" value="{clave}"><input name="co" placeholder="COD"><input name="no" placeholder="PRODUCTO"><input name="pr" placeholder="PRECIO"><input name="st" placeholder="STOCK"><select name="un"><option value="p">Pieza</option><option value="k">Kilo</option></select><button>GUARDAR</button></form>' if u['rango'] == 'Dueño' else ""
-    return f"{CSS}<div class='menu-box'><h3>📦 INVENTARIO</h3>{tabla}{form}<a href='/verificar' class='btn-volver'>VOLVER</a></div>"
-
-@app.route('/add_p', methods=['POST'])
-def add_p():
-    with iniciar_db_tienda(f"tienda_{request.form['cl']}.db") as db:
-        db.execute("INSERT OR REPLACE INTO productos VALUES (?,?,?,?,?)", (request.form['co'], request.form['no'], request.form['pr'], request.form['st'], request.form['un']))
-    return redirect(f"/inventario/{request.form['cl']}")
-
-@app.route('/add_car', methods=['POST'])
-def add_car():
-    clv = session.get('usuario_clave')
-    db_u = iniciar_db_usuarios()
-    u = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clv,)).fetchone()
-    db_n = f"tienda_{u['creado_por']}.db" if u['rango'] == 'Trabajador' else f"tienda_{u['clave']}.db"
-    db = iniciar_db_tienda(db_n)
-    p = db.execute("SELECT * FROM productos WHERE codigo=?", (request.form['cod'],)).fetchone()
-    if p:
-        cnt = float(request.form['cnt'])
-        sub = p['precio']*cnt if p['unidad']=='p' else cnt
-        real_cnt = cnt if p['unidad']=='p' else cnt/p['precio']
-        car = session.get('carrito', [])
-        car.append({'id':p['codigo'], 'n':p['nombre'], 'c':round(real_cnt,2), 's':sub})
-        session['carrito'] = car
-    return redirect('/venta')
-
-@app.route('/cobrar')
-def cobrar():
-    clv = session.get('usuario_clave')
-    car = session.get('carrito', [])
-    if not car: return redirect('/venta')
-    db_u = iniciar_db_usuarios()
-    u = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clv,)).fetchone()
-    db_n = f"tienda_{u['creado_por']}.db" if u['rango'] == 'Trabajador' else f"tienda_{u['clave']}.db"
-    db = iniciar_db_tienda(db_n)
-    with db:
-        for i in car:
-            db.execute("UPDATE productos SET stock=stock-? WHERE codigo=?", (i['c'], i['id']))
-            db.execute("INSERT INTO ventas (total, fecha, vendedor) VALUES (?,?,?)", (i['s'], datetime.now().strftime("%H:%M"), u['nombre']))
-    session['carrito'] = []
-    return redirect('/venta')
-
-@app.route('/usuarios/<clave>')
-def gestionar_usuarios(clave):
-    db_u = iniciar_db_usuarios()
-    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
-    if user['rango'] == "Super Admin":
-        items = db_u.execute("SELECT * FROM usuarios WHERE rango = 'Administrador'").fetchall()
-        r_crear = "Administrador"
-    else:
-        items = db_u.execute("SELECT * FROM usuarios WHERE creado_por = ?", (clave,)).fetchall()
-        r_crear = "Trabajador"
-    tabla = "<table>" + "".join([f"<tr><td>{i['nombre']}</td><td>{i['estado']}</td><td><a href='/status_simple/{clave}/{i['clave']}' class='btn-rojo'>ST</a></td></tr>" for i in items]) + "</table>"
-    return f"{CSS}<div class='menu-box'><h3>👥 USUARIOS</h3>{tabla}<hr><form action='/add_user' method='post'><input type='hidden' name='admin_clave' value='{clave}'><input type='hidden' name='rango' value='{r_crear}'><input name='nombre' placeholder='Nombre'><button>CREAR</button></form><a href='/verificar' class='btn-volver'>VOLVER</a></div>"
-
-@app.route('/status_simple/<admin>/<target>')
-def status_simple(admin, target):
-    db = iniciar_db_usuarios()
-    u = db.execute("SELECT estado FROM usuarios WHERE clave=?", (target,)).fetchone()
-    new = "Activo" if u['estado'] == "Suspendido" else "Suspendido"
-    with db: db.execute("UPDATE usuarios SET estado=? WHERE clave=?", (new, target))
-    return redirect(f"/usuarios/{admin}")
-
-@app.route('/renovar/<admin>/<target>')
-def renovar(admin, target):
-    db_u = iniciar_db_usuarios()
-    u = db_u.execute("SELECT vencimiento FROM usuarios WHERE clave = ?", (target,)).fetchone()
-    actual = datetime.strptime(u['vencimiento'], "%Y-%m-%d %H:%M:%S")
-    inicio = actual if actual > datetime.now() else datetime.now()
-    nueva = (inicio + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-    with db_u: db_u.execute("UPDATE usuarios SET vencimiento = ?, estado = 'Activo' WHERE clave = ?", (nueva, target))
-    return redirect(f"/gestionar_negocios/{admin}")
+        db.execute("INSERT INTO usuarios (clave, nombre, rango, creado_por, estado, vencimiento) VALUES (?,?,?,?,?,?)", 
+                   (clv, nom, rango, adm, "Activo", "2026-12-31 23:59:59"))
+    return redirect(f"/verificar")
 
 if __name__ == "__main__":
     iniciar_db_usuarios()
     app.run(host='0.0.0.0', port=10000)
-        
+    
