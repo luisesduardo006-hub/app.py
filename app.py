@@ -4,11 +4,12 @@ import urllib.parse
 import random
 import string
 import os
-from flask import Flask, request, render_template_string, redirect
+from flask import Flask, request, render_template_string, redirect, session
 
 app = Flask(__name__)
+app.secret_key = 'clave_secreta_punto_venta'
 
-# --- TUS FUNCIONES DE BASE DE DATOS (IDÉNTICAS) ---
+# --- BASE DE DATOS ---
 def iniciar_db(nombre_db='punto_venta_v4.db'):
     conn = sqlite3.connect(nombre_db)
     conn.row_factory = sqlite3.Row 
@@ -28,7 +29,7 @@ def iniciar_db(nombre_db='punto_venta_v4.db'):
         
         res = conn.execute("SELECT COUNT(*) FROM configuracion").fetchone()
         if res[0] == 0:
-            conn.execute("INSERT INTO configuracion (id, nombre_negocio, direccion, min_compra, porc_desc, telefono_dueno) VALUES (1, 'MI TIENDITA PRO', 'Direccion General', 0, 0, '')")
+            conn.execute("INSERT INTO configuracion (id, nombre_negocio, direccion, min_compra, porc_desc, telefono_dueno) VALUES (1, 'MI TIENDITA PRO', 'Direccion', 0, 0, '')")
     return conn
 
 def iniciar_db_usuarios():
@@ -41,7 +42,6 @@ def iniciar_db_usuarios():
                      ("ADM-K97B", "ADMIN PRINCIPAL", "Administrador", "SISTEMA", "Activo"))
     return conn
 
-# --- ESTILO VISUAL CONSOLA ---
 CSS = '''
 <style>
     body { background: #000; color: #0f0; font-family: 'Courier New', monospace; padding: 20px; }
@@ -53,121 +53,159 @@ CSS = '''
     hr { border: 0; border-top: 1px dashed #0f0; margin: 15px 0; }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #0f0; }
     th, td { border: 1px solid #0f0; padding: 8px; text-align: left; }
-    .btn-rojo { background: #f00; color: #fff; padding: 5px; text-decoration: none; font-size: 0.8em; }
-    .btn-verde { background: #0f0; color: #000; padding: 5px; text-decoration: none; font-size: 0.8em; }
+    .btn-rojo { background: #f00; color: #fff; padding: 5px; text-decoration: none; border: none; cursor: pointer; }
+    .btn-volver { background: none; border: 1px solid #0f0; color: #0f0; padding: 10px; width: 100%; margin-top: 10px; cursor: pointer; font-weight: bold; display: block; text-align: center; text-decoration: none; }
+    .btn-volver:hover { background: #0f0; color: #000; }
 </style>
 '''
 
 @app.route('/')
 def login_screen():
+    session.clear()
     return f'''{CSS}
     <div class="menu-box">
         <p>===================================</p>
         <p>🔑 INICIO DE SESIÓN</p>
         <p>===================================</p>
         <form action="/verificar" method="post">
-            <label>Clave de acceso:</label>
-            <input type="text" name="clave" autofocus required>
+            <input type="text" name="clave" placeholder="CLAVE DE ACCESO" autofocus required>
             <button type="submit">ENTRAR</button>
         </form>
     </div>'''
 
 @app.route('/verificar', methods=['POST'])
 def verificar():
-    clave = request.form.get('clave')
+    clave = request.form.get('clave') or session.get('usuario_clave')
     db_u = iniciar_db_usuarios()
     user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
     
-    if user:
-        if user['estado'] == "Suspendido":
-            return f"{CSS}<div class='menu-box'>🚫 SERVICIO SUSPENDIDO POR EL ADMINISTRADOR.<br><br><a href='/' style='color:#0f0'>Volver</a></div>"
-        
-        db_nombre = f"tienda_{user['creado_por']}.db" if user['rango'] == 'Trabajador' else f"tienda_{user['clave']}.db"
-        db = iniciar_db(db_nombre)
+    if user and user['estado'] != "Suspendido":
+        session['usuario_clave'] = clave
+        db_n = f"tienda_{user['creado_por']}.db" if user['rango'] == 'Trabajador' else f"tienda_{user['clave']}.db"
+        db = iniciar_db(db_n)
         conf = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
 
-        menu_html = f"{CSS}<div class='menu-box'><h3>--- {conf['nombre_negocio']} ---</h3><p>Usuario: {user['nombre']} | Rango: {user['rango']}</p><hr>"
-
+        menu = f"{CSS}<div class='menu-box'><h3>--- {conf['nombre_negocio']} ---</h3><p>{user['nombre']} ({user['rango']})</p><hr>"
         if user['rango'] == 'Administrador':
-            menu_html += f'<a class="opcion" href="/usuarios/{clave}">1. GESTIONAR DUEÑOS Y SUSPENDER</a>'
-        elif user['rango'] == 'Dueño':
-            menu_html += f'''
-                <a class="opcion" href="/venta/{clave}">1. REALIZAR VENTA</a>
-                <a class="opcion" href="/inventario/{clave}">2. INVENTARIO</a>
-                <a class="opcion" href="/usuarios/{clave}">3. MIS TRABAJADORES</a>
-                <a class="opcion" href="/pago_proveedor/{clave}">4. PAGAR A PROVEEDOR</a>
-                <a class="opcion" href="/config/{clave}">5. CONFIGURACIÓN</a>
-                <a class="opcion" href="/corte/{clave}">6. CORTE DE CAJA</a>'''
-        elif user['rango'] == 'Trabajador':
-            menu_html += f'''
-                <a class="opcion" href="/venta/{clave}">1. REALIZAR VENTA</a>
-                <a class="opcion" href="/inventario/{clave}">2. VER STOCK</a>
-                <a class="opcion" href="/pago_proveedor/{clave}">3. PAGAR A PROVEEDOR</a>'''
-        
-        menu_html += '<hr><a class="opcion" href="/">7. SALIR</a></div>'
-        return menu_html
-    return f"{CSS}<div class='menu-box'>❌ Clave incorrecta.<br><a href='/' style='color:#0f0'>Reintentar</a></div>"
+            menu += f'<a class="opcion" href="/usuarios/{clave}">1. GESTIONAR DUEÑOS</a>'
+        elif user['rango'] in ['Dueño', 'Trabajador']:
+            menu += '<a class="opcion" href="/venta">1. REALIZAR VENTA</a>'
+            menu += f'<a class="opcion" href="/inventario/{clave}">2. INVENTARIO</a>'
+            menu += f'<a class="opcion" href="/pago_proveedor/{clave}">3. PAGAR PROVEEDOR</a>'
+            if user['rango'] == 'Dueño':
+                menu += f'<a class="opcion" href="/usuarios/{clave}">4. MIS TRABAJADORES</a>'
+                menu += f'<a class="opcion" href="/config/{clave}">5. CONFIGURACIÓN</a>'
+                menu += f'<a class="opcion" href="/corte/{clave}">6. CORTE DE CAJA</a>'
+        menu += '<hr><a class="opcion" href="/">7. SALIR</a></div>'
+        return menu
+    return "Acceso denegado o cuenta suspendida."
 
-# --- GESTIÓN DE USUARIOS Y SUSPENSIÓN ---
-@app.route('/usuarios/<clave>')
-def gestionar_usuarios(clave):
+# --- VENTAS KILO/PIEZA + TICKET ---
+
+@app.route('/venta')
+def vista_venta():
+    clave = session.get('usuario_clave')
     db_u = iniciar_db_usuarios()
     user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
-    rango_a_gestionar = "Dueño" if user['rango'] == "Administrador" else "Trabajador"
-    mi_rama = db_u.execute("SELECT * FROM usuarios WHERE creado_por = ?", (clave,)).fetchall()
+    db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
     
-    tabla = "<table><tr><th>CLAVE</th><th>NOMBRE</th><th>ESTADO</th><th>ACCIÓN</th></tr>"
-    for u in mi_rama:
-        accion = ""
-        if user['rango'] == "Administrador":
-            texto_btn = "ACTIVAR" if u['estado'] == "Suspendido" else "SUSPENDER"
-            color_btn = "btn-verde" if u['estado'] == "Suspendido" else "btn-rojo"
-            accion = f'<td><a href="/cambiar_estado/{clave}/{u["clave"]}" class="{color_btn}">{texto_btn}</a></td>'
-        else:
-            accion = "<td>-</td>"
-            
-        tabla += f"<tr><td>{u['clave']}</td><td>{u['nombre']}</td><td>{u['estado']}</td>{accion}</tr>"
+    prods = db.execute("SELECT * FROM productos WHERE stock > 0").fetchall()
+    opciones = "".join([f"<option value='{p['codigo']}'>{p['nombre']} (${p['precio']} /{p['unidad']})</option>" for p in prods])
+    
+    carrito = session.get('carrito', [])
+    total = sum(item['subtotal'] for item in carrito)
+    
+    tabla = "<table><tr><th>Prod</th><th>Cant</th><th>Sub</th><th>X</th></tr>"
+    for i, it in enumerate(carrito):
+        uni = "pz" if it['unidad'] == 'p' else "kg"
+        tabla += f"<tr><td>{it['nombre']}</td><td>{it['cantidad']}{uni}</td><td>${it['subtotal']}</td><td><a href='/quitar/{i}' class='btn-rojo'>X</a></td></tr>"
     tabla += "</table>"
 
-    return f'''{CSS}<div class="menu-box"><h3>--- PANEL {rango_a_gestionar.upper()}S ---</h3>{tabla}<hr>
-    <form action="/add_user" method="post"><input type="hidden" name="admin_clave" value="{clave}"><input type="hidden" name="rango" value="{rango_a_gestionar}">
-    <input name="nombre" placeholder="Nombre" required><button type="submit">REGISTRAR NUEVO</button></form>
-    <br><a href="javascript:history.back()" style="color:#0f0">[ Volver ]</a></div>'''
+    return f'''{CSS}<div class="menu-box">
+        <h3>🛒 CAJA</h3>
+        <form action="/agregar" method="post">
+            <select name="cod">{opciones}</select>
+            <input type="number" step="0.1" name="cant" placeholder="Piezas o Dinero (si es kilo)" required>
+            <button type="submit">AGREGAR</button>
+        </form>
+        {tabla}
+        <h4>TOTAL: ${total}</h4>
+        {f'<a href="/confirmar" class="opcion" style="background:#0f0; color:#000; text-align:center">--- COBRAR Y GENERAR TICKET ---</a>' if carrito else ''}
+        <br>
+        <form action="/verificar" method="post">
+            <input type="hidden" name="clave" value="{clave}">
+            <button type="submit" class="btn-volver">VOLVER AL MENÚ</button>
+        </form>
+    </div>'''
 
-@app.route('/cambiar_estado/<admin_clave>/<target_clave>')
-def cambiar_estado(admin_clave, target_clave):
+@app.route('/agregar', methods=['POST'])
+def agregar():
+    clave = session.get('usuario_clave')
+    cod, cant = request.form.get('cod'), float(request.form.get('cant'))
     db_u = iniciar_db_usuarios()
-    u = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (target_clave,)).fetchone()
-    nuevo_estado = "Activo" if u['estado'] == "Suspendido" else "Suspendido"
+    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
+    db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
     
-    with db_u:
-        # Suspender al dueño
-        db_u.execute("UPDATE usuarios SET estado = ? WHERE clave = ?", (nuevo_estado, target_clave))
-        # Suspender a toda su rama (trabajadores creados por él)
-        db_u.execute("UPDATE usuarios SET estado = ? WHERE creado_por = ?", (nuevo_estado, target_clave))
+    p = db.execute("SELECT * FROM productos WHERE codigo = ?", (cod,)).fetchone()
+    if p:
+        subtotal = p['precio'] * cant if p['unidad'] == 'p' else cant
+        cant_stock = cant if p['unidad'] == 'p' else cant / p['precio']
         
-    return redirect(f"/usuarios/{admin_clave}")
+        carrito = session.get('carrito', [])
+        carrito.append({'codigo': cod, 'nombre': p['nombre'], 'cantidad': round(cant_stock, 2), 'subtotal': subtotal, 'unidad': p['unidad']})
+        session['carrito'] = carrito
+    return redirect('/venta')
 
-@app.route('/add_user', methods=['POST'])
-def add_user():
-    admin_clave, nom, rango = request.form.get('admin_clave'), request.form.get('nombre'), request.form.get('rango')
-    nueva_c = f"{nom[:3].upper()}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=4))}"
+@app.route('/quitar/<i>')
+def quitar(i):
+    carrito = session.get('carrito', [])
+    carrito.pop(int(i))
+    session['carrito'] = carrito
+    return redirect('/venta')
+
+@app.route('/confirmar')
+def confirmar():
+    clave = session.get('usuario_clave')
+    carrito = session.get('carrito', [])
     db_u = iniciar_db_usuarios()
-    with db_u: db_u.execute("INSERT INTO usuarios (clave, nombre, rango, creado_por, estado) VALUES (?,?,?,?,?)", (nueva_c, nom, rango, admin_clave, "Activo"))
-    return f"{CSS}<div class='menu-box'>✅ GENERADA: {nueva_c}<br><br><a href='/' style='color:#0f0'>Volver al inicio</a></div>"
+    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
+    db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
+    conf = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
+    
+    total = sum(item['subtotal'] for item in carrito)
+    ticket = f"🧾 *TICKET: {conf['nombre_negocio']}*\\n"
+    ticket += f"👤 Atendió: {user['nombre']}\\n--------------------------\\n"
+    
+    with db:
+        for it in carrito:
+            db.execute("UPDATE productos SET stock = stock - ? WHERE codigo = ?", (it['cantidad'], it['codigo']))
+            ticket += f"• {it['nombre']}: ${it['subtotal']}\\n"
+        db.execute("INSERT INTO ventas (total, pago, cambio, fecha, vendedor) VALUES (?,?,?,?,?)", (total, total, 0, datetime.now().strftime("%Y-%m-%d %H:%M"), user['nombre']))
+    
+    ticket += f"--------------------------\\n💰 *TOTAL: ${total}*"
+    url_wa = f"https://api.whatsapp.com/send?phone=52{conf['telefono_dueno']}&text={urllib.parse.quote(ticket)}"
+    
+    session['carrito'] = []
+    return f"{CSS}<div class='menu-box'><h3>✅ VENTA GUARDADA</h3><a href='{url_wa}' class='opcion' target='_blank'>📲 ENVIAR TICKET WHATSAPP</a><br><br><a href='/venta' class='btn-volver'>NUEVA VENTA</a></div>"
 
-# --- FUNCIONES DE TIENDA (VENTA, INVENTARIO, ETC) ---
+# --- INVENTARIO ---
 @app.route('/inventario/<clave>')
 def inventario(clave):
     db_u = iniciar_db_usuarios()
     user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
     db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
     prods = db.execute("SELECT * FROM productos").fetchall()
-    tabla = "<table><tr><th>COD</th><th>NOM</th><th>PRE</th><th>STK</th></tr>"
-    for p in prods: tabla += f"<tr><td>{p['codigo']}</td><td>{p['nombre']}</td><td>${p['precio']}</td><td>{p['stock']}</td></tr>"
+    tabla = "<table><tr><th>COD</th><th>NOM</th><th>PRE</th><th>STK</th><th>UNI</th></tr>"
+    for p in prods: tabla += f"<tr><td>{p['codigo']}</td><td>{p['nombre']}</td><td>${p['precio']}</td><td>{p['stock']}</td><td>{p['unidad']}</td></tr>"
     tabla += "</table>"
-    form = f'''<hr><form action="/add_prod" method="post"><input type="hidden" name="clave" value="{clave}"><input name="cod" placeholder="Código"><input name="nom" placeholder="Nombre"><input type="number" step="0.1" name="pre" placeholder="Precio"><input type="number" step="0.1" name="sto" placeholder="Stock"><select name="uni"><option value="p">Pieza</option><option value="k">Kilo</option></select><button type="submit">GUARDAR</button></form>''' if user['rango'] != 'Trabajador' else ""
-    return f"{CSS}<div class='menu-box'><h3>📦 STOCK</h3>{tabla}{form}<br><a href='javascript:history.back()' style='color:#0f0'>[ Volver ]</a></div>"
+    form = f'''<hr><form action="/add_prod" method="post"><input type="hidden" name="clave" value="{clave}"><input name="cod" placeholder="Cod"><input name="nom" placeholder="Nombre"><input type="number" step="0.1" name="pre" placeholder="Precio"><input type="number" step="0.1" name="sto" placeholder="Stock"><select name="uni"><option value="p">Pieza</option><option value="k">Kilo</option></select><button type="submit">GUARDAR</button></form>''' if user['rango'] != 'Trabajador' else ""
+    
+    return f'''{CSS}<div class="menu-box"><h3>📦 STOCK</h3>{tabla}{form}
+        <form action="/verificar" method="post">
+            <input type="hidden" name="clave" value="{clave}">
+            <button type="submit" class="btn-volver">VOLVER AL MENÚ</button>
+        </form>
+    </div>'''
 
 @app.route('/add_prod', methods=['POST'])
 def add_prod():
@@ -176,63 +214,64 @@ def add_prod():
     with db: db.execute("INSERT OR REPLACE INTO productos (codigo, nombre, precio, stock, min_compra, unidad) VALUES (?,?,?,?,?,?)", (request.form.get('cod'), request.form.get('nom'), request.form.get('pre'), request.form.get('sto'), 0, request.form.get('uni')))
     return redirect(f"/inventario/{clave}")
 
-@app.route('/venta/<clave>')
-def venta(clave):
+# --- GESTION USUARIOS ---
+@app.route('/usuarios/<clave>')
+def gestionar_usuarios(clave):
     db_u = iniciar_db_usuarios()
     user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
-    db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
-    prods = db.execute("SELECT * FROM productos WHERE stock > 0").fetchall()
-    opciones = "".join([f"<option value='{p['codigo']}'>{p['nombre']} (${p['precio']})</option>" for p in prods])
-    return f'''{CSS}<div class="menu-box"><h3>🛒 CAJA</h3><form action="/procesar_venta" method="post"><input type="hidden" name="clave" value="{clave}"><select name="cod">{opciones}</select><input type="number" step="0.1" name="cant" placeholder="Cantidad / Dinero" required><button type="submit">VENDER</button></form><br><a href="javascript:history.back()" style="color:#0f0">[ Volver ]</a></div>'''
+    rango_dest = "Dueño" if user['rango'] == "Administrador" else "Trabajador"
+    mi_rama = db_u.execute("SELECT * FROM usuarios WHERE creado_por = ?", (clave,)).fetchall()
+    tabla = "<table><tr><th>CLAVE</th><th>NOM</th><th>EST</th><th>ACC</th></tr>"
+    for u in mi_rama:
+        acc = f'<td><a href="/status/{clave}/{u["clave"]}" class="btn-rojo">S/A</a></td>' if user['rango'] == "Administrador" else "<td>-</td>"
+        tabla += f"<tr><td>{u['clave']}</td><td>{u['nombre']}</td><td>{u['estado']}</td>{acc}</tr>"
+    
+    return f'''{CSS}<div class="menu-box"><h3>👥 {rango_dest.upper()}S</h3>{tabla+ "</table>"}<hr>
+    <form action="/add_user" method="post"><input type="hidden" name="admin_clave" value="{clave}"><input type="hidden" name="rango" value="{rango_dest}"><input name="nombre" placeholder="Nombre"><button type="submit">AÑADIR</button></form>
+    <form action="/verificar" method="post">
+        <input type="hidden" name="clave" value="{clave}">
+        <button type="submit" class="btn-volver">VOLVER AL MENÚ</button>
+    </form></div>'''
 
-@app.route('/procesar_venta', methods=['POST'])
-def procesar_venta():
-    clave, cod, cant = request.form.get('clave'), request.form.get('cod'), float(request.form.get('cant'))
+@app.route('/status/<admin>/<target>')
+def status(admin, target):
     db_u = iniciar_db_usuarios()
-    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
-    db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
-    p = db.execute("SELECT * FROM productos WHERE codigo = ?", (cod,)).fetchone()
-    if p:
-        total = p['precio'] * cant if p['unidad'] == 'p' else cant
-        desc = cant if p['unidad'] == 'p' else cant / p['precio']
-        with db:
-            db.execute("UPDATE productos SET stock = stock - ? WHERE codigo = ?", (desc, cod))
-            db.execute("INSERT INTO ventas (total, pago, cambio, fecha, vendedor) VALUES (?,?,?,?,?)", (total, total, 0, datetime.now().strftime("%Y-%m-%d %H:%M"), user['nombre']))
-        return f"{CSS}<div class='menu-box'>✅ COBRADO: ${total}<br><br><a href='javascript:history.back()' style='color:#0f0'>[ Siguiente ]</a></div>"
-    return "Error"
+    u = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (target,)).fetchone()
+    nuevo = "Activo" if u['estado'] == "Suspendido" else "Suspendido"
+    with db_u:
+        db_u.execute("UPDATE usuarios SET estado = ? WHERE clave = ?", (nuevo, target))
+        db_u.execute("UPDATE usuarios SET estado = ? WHERE creado_por = ?", (nuevo, target))
+    return redirect(f"/usuarios/{admin}")
 
-@app.route('/pago_proveedor/<clave>')
-def pago_proveedor(clave):
-    return f'''{CSS}<div class="menu-box"><h3>🚚 PROVEEDORES</h3><form action="/reg_gasto" method="post"><input type="hidden" name="clave" value="{clave}"><input name="prov" placeholder="Concepto"><input type="number" step="0.1" name="monto" placeholder="Monto $"><button type="submit">PAGAR</button></form><br><a href="javascript:history.back()" style="color:#0f0">[ Volver ]</a></div>'''
-
-@app.route('/reg_gasto', methods=['POST'])
-def reg_gasto():
-    clave, prov, monto = request.form.get('clave'), request.form.get('prov'), request.form.get('monto')
+@app.route('/add_user', methods=['POST'])
+def add_user():
+    admin, nom, rango = request.form.get('admin_clave'), request.form.get('nombre'), request.form.get('rango')
+    clv = f"{nom[:3].upper()}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=4))}"
     db_u = iniciar_db_usuarios()
-    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
-    db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
-    with db: db.execute("INSERT INTO gastos (concepto, monto, fecha) VALUES (?, ?, ?)", (prov, monto, datetime.now().strftime("%Y-%m-%d %H:%M")))
-    return redirect(f"/pago_proveedor/{clave}")
+    with db_u: db_u.execute("INSERT INTO usuarios (clave, nombre, rango, creado_por, estado) VALUES (?,?,?,?,?)", (clv, nom, rango, admin, "Activo"))
+    return f"{CSS}<div class='menu-box'>✅ CLAVE GENERADA: {clv}<br><a href='/' class='btn-volver'>VOLVER AL LOGIN</a></div>"
 
-@app.route('/corte/<clave>')
-def corte(clave):
-    db_u = iniciar_db_usuarios()
-    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
-    db = iniciar_db(f"tienda_{user['clave']}.db")
-    conf = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
-    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-    v = db.execute("SELECT SUM(total) as t FROM ventas WHERE fecha LIKE ?", (f"{fecha_hoy}%",)).fetchone()['t'] or 0
-    g = db.execute("SELECT SUM(monto) as t FROM gastos WHERE fecha LIKE ?", (f"{fecha_hoy}%",)).fetchone()['t'] or 0
-    total = v - g
-    msg = f"📊 CORTE: {conf['nombre_negocio']}\\n✅ Ventas: ${v}\\n💸 Gastos: ${g}\\n💰 TOTAL: ${total}"
-    url_wa = f"https://api.whatsapp.com/send?phone=52{conf['telefono_dueno']}&text={urllib.parse.quote(msg)}"
-    return f"{CSS}<div class='menu-box'><h3>📊 CORTE HOY</h3><p>Ventas: ${v}</p><p>Gastos: ${g}</p><h4>TOTAL: ${total}</h4><hr><a href='{url_wa}' class='opcion' target='_blank'>📲 MANDAR WHATSAPP</a><br><a href='javascript:history.back()' style='color:#0f0'>[ Volver ]</a></div>"
-
+# --- CONFIGURACIÓN CON BOTÓN VOLVER ---
 @app.route('/config/<clave>')
 def config(clave):
     db = iniciar_db(f"tienda_{clave}.db")
     c = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
-    return f'''{CSS}<div class="menu-box"><h3>⚙️ CONFIG</h3><form action="/upd_conf" method="post"><input type="hidden" name="clave" value="{clave}"><label>Negocio:</label><input name="nn" value="{c['nombre_negocio']}"><label>Teléfono:</label><input name="nt" value="{c['telefono_dueno']}"><button type="submit">GUARDAR</button></form></div>'''
+    return f'''{CSS}<div class="menu-box">
+        <h3>⚙️ CONFIGURACIÓN</h3>
+        <form action="/upd_conf" method="post">
+            <input type="hidden" name="clave" value="{clave}">
+            <label>Nombre Negocio:</label>
+            <input name="nn" value="{c['nombre_negocio']}">
+            <label>Teléfono (WhatsApp):</label>
+            <input name="nt" value="{c['telefono_dueno']}">
+            <button type="submit">GUARDAR CAMBIOS</button>
+        </form>
+        <hr>
+        <form action="/verificar" method="post">
+            <input type="hidden" name="clave" value="{clave}">
+            <button type="submit" class="btn-volver">VOLVER AL MENÚ</button>
+        </form>
+    </div>'''
 
 @app.route('/upd_conf', methods=['POST'])
 def upd_conf():
@@ -241,8 +280,42 @@ def upd_conf():
     with db: db.execute("UPDATE configuracion SET nombre_negocio=?, telefono_dueno=? WHERE id=1", (nn, nt))
     return redirect(f"/config/{clave}")
 
+# --- GASTOS Y CORTE ---
+@app.route('/pago_proveedor/<clave>')
+def pago_proveedor(clave):
+    return f'''{CSS}<div class="menu-box"><h3>🚚 GASTOS</h3><form action="/reg_gasto" method="post"><input type="hidden" name="clave" value="{clave}"><input name="prov" placeholder="Concepto"><input type="number" step="0.1" name="monto" placeholder="Monto"><button type="submit">PAGAR</button></form>
+    <form action="/verificar" method="post">
+        <input type="hidden" name="clave" value="{clave}">
+        <button type="submit" class="btn-volver">VOLVER</button>
+    </form></div>'''
+
+@app.route('/reg_gasto', methods=['POST'])
+def reg_gasto():
+    clave, prov, monto = request.form.get('clave'), request.form.get('prov'), request.form.get('monto')
+    db_u = iniciar_db_usuarios()
+    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
+    db = iniciar_db(f"tienda_{user['creado_por'] if user['rango'] == 'Trabajador' else user['clave']}.db")
+    with db: db.execute("INSERT INTO gastos (concepto, monto, fecha) VALUES (?, ?, ?)", (prov, monto, datetime.now().strftime("%Y-%m-%d")))
+    return redirect(f"/pago_proveedor/{clave}")
+
+@app.route('/corte/<clave>')
+def corte(clave):
+    db_u = iniciar_db_usuarios()
+    user = db_u.execute("SELECT * FROM usuarios WHERE clave = ?", (clave,)).fetchone()
+    db = iniciar_db(f"tienda_{user['clave']}.db")
+    conf = db.execute("SELECT * FROM configuracion WHERE id = 1").fetchone()
+    v = db.execute("SELECT SUM(total) as t FROM ventas WHERE fecha LIKE ?", (f"{datetime.now().strftime('%Y-%m-%d')}%",)).fetchone()['t'] or 0
+    g = db.execute("SELECT SUM(monto) as t FROM gastos WHERE fecha LIKE ?", (f"{datetime.now().strftime('%Y-%m-%d')}%",)).fetchone()['t'] or 0
+    msg = f"📊 CORTE {conf['nombre_negocio']}\\n💰 TOTAL: ${v-g}"
+    url = f"https://api.whatsapp.com/send?phone=52{conf['telefono_dueno']}&text={urllib.parse.quote(msg)}"
+    return f'''{CSS}<div class="menu-box"><h3>📊 CORTE</h3><p>Ventas: ${v}</p><p>Gastos: ${g}</p><h4>NETO: ${v-g}</h4><a href='{url}' class='opcion' target='_blank'>📲 MANDAR WA</a>
+    <form action="/verificar" method="post">
+        <input type="hidden" name="clave" value="{clave}">
+        <button type="submit" class="btn-volver">VOLVER</button>
+    </form></div>'''
+
 if __name__ == "__main__":
     iniciar_db_usuarios()
     iniciar_db()
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
-    
+        
