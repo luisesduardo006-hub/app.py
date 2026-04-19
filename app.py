@@ -6,11 +6,11 @@ from datetime import datetime
 import io
 
 app = Flask(__name__)
-app.secret_key = 'tu_clave_secreta_aqui'
+app.secret_key = 'tu_clave_secreta_pro_2026' # Puedes cambiar esto por cualquier texto
 
 # --- CONFIGURACIÓN DE BASE DE DATOS ---
 def get_db_connection():
-    # Usamos una ruta absoluta para evitar problemas en Render
+    # Ruta absoluta para que Render no pierda la base de datos
     db_path = os.path.join(os.path.dirname(__file__), 'punto_venta_v4.db')
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -19,7 +19,7 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
-    # Tabla de usuarios (Dueños, Admin, Trabajadores)
+    # Tabla de usuarios
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,7 +31,7 @@ def init_db():
             whatsapp_reporte TEXT
         )
     ''')
-    # Tabla de productos (Separados por dueño)
+    # Tabla de productos
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,6 +56,12 @@ def init_db():
     conn.commit()
     conn.close()
 
+# --- RUTAS DE SISTEMA (PARA RENDER) ---
+@app.route('/health')
+def health():
+    """Ruta ligera para que Render verifique que el sitio está vivo"""
+    return "Sistema Operativo", 200
+
 # --- RUTAS DE SESIÓN ---
 @app.route('/')
 def index():
@@ -65,15 +71,20 @@ def index():
 
 @app.route('/login', methods=['POST'])
 def login():
-    clave = request.form['clave']
+    clave = request.form.get('clave')
+    if not clave:
+        return "Clave requerida", 400
+        
     conn = get_db_connection()
     user = conn.execute('SELECT * FROM usuarios WHERE clave = ?', (clave,)).fetchone()
     conn.close()
     
     if user:
+        session.clear() # Limpiar sesiones previas por seguridad
         session['user_id'] = user['id']
         session['nombre'] = user['nombre']
         session['rol'] = user['rol']
+        # Si es trabajador, su dueño_id es el que tiene en la tabla, si es dueño, es su propio ID
         session['dueño_id'] = user['dueño_id'] if user['rol'] == 'trabajador' else user['id']
         return redirect(url_for('dashboard'))
     return "Clave incorrecta", 401
@@ -83,19 +94,19 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
-# --- DASHBOARD Y EXPORTACIÓN ---
+# --- DASHBOARD ---
 @app.route('/dashboard')
 def dashboard():
     if 'user_id' not in session:
         return redirect(url_for('index'))
     return render_template('dashboard.html', rol=session['rol'], nombre=session['nombre'])
 
+# --- EXPORTACIÓN A EXCEL (PANDAS) ---
 @app.route('/exportar_corte')
 def exportar_corte():
     if 'user_id' not in session:
         return redirect(url_for('index'))
     
-    # Solo el dueño o admin ven sus ventas
     dueño_actual = session['dueño_id']
     
     conn = get_db_connection()
@@ -104,9 +115,9 @@ def exportar_corte():
     conn.close()
 
     if df.empty:
-        return "No hay ventas registradas para este periodo."
+        return "No hay ventas registradas para generar el reporte.", 404
 
-    # Crear el Excel en memoria
+    # Generar el archivo en memoria (no ocupa espacio en el servidor)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Corte de Caja')
@@ -117,14 +128,13 @@ def exportar_corte():
         output,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
-        download_name=f'corte_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx'
+        download_name=f'corte_caja_{datetime.now().strftime("%Y%m%d")}.xlsx'
     )
 
-# --- INICIO DEL SERVIDOR (AJUSTADO PARA RENDER) ---
+# --- INICIO DEL SERVIDOR ---
 if __name__ == "__main__":
     init_db()
-    # Render usa la variable de entorno PORT, si no existe usa el 10000
+    # Configuración crucial para el despliegue en la nube
     port = int(os.environ.get("PORT", 10000))
-    # Importante: host '0.0.0.0' para que sea accesible externamente
     app.run(host='0.0.0.0', port=port)
     
