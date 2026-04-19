@@ -355,25 +355,6 @@ def registrar_pago():
 def gestion_personal():
     if 'user' not in session: return redirect('/')
     personal = query_db("SELECT * FROM usuarios WHERE dueño_id = ?", (session['dueño'],))
-    lista = "".join([f'<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;margin-top:10px;display:flex;justify-content:space-between;"><span>👤 {p["usuario"]}</span><b>PIN: {p["clave"]}</b></div>' for p in personal])
-    return f'''{CSS}<div class="card"><h2>Personal</h2><form action="/crear_trabajador" method="post">
-        <input name="nombre" placeholder="NOMBRE" required style="text-transform:uppercase;">
-        <button type="submit" class="btn-pos" style="margin-top:10px;">CREAR ACCESO</button></form>
-        <div style="margin-top:20px;">{lista if lista else "<p>Sin personal.</p>"}</div>
-        <a href="/hub" class="btn-nav" style="margin-top:20px;">Volver</a></div>'''
-
-@app.route('/crear_trabajador', methods=['POST'])
-def crear_trabajador():
-    if 'user' not in session: return redirect('/')
-    query_db("INSERT INTO usuarios (usuario, clave, rol, dueño_id) VALUES (?, ?, 'trabajador', ?)", 
-             (request.form['nombre'].upper(), str(random.randint(1000, 9999)), session['dueño']))
-    return redirect('/gestion_personal')
-    
-
-@app.route('/gestion_personal')
-def gestion_personal():
-    if 'user' not in session: return redirect('/')
-    personal = query_db("SELECT * FROM usuarios WHERE dueño_id = ?", (session['dueño'],))
     lista_p = ""
     for p in personal:
         lista_p += f'''<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
