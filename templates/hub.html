@@ -20,7 +20,17 @@
         <h2 style="margin: 0; color: var(--accent);">{{ session['empresa'] }}</h2>
         <span class="badge">{{ session['rango'] }}</span>
     </div>
-
+    
+<div style="background: rgba(0,158,227,0.1); border: 1px solid #009ee3; padding: 20px; border-radius: 15px; text-align: center; margin: 20px 0;">
+    <h3 style="color: #009ee3; margin-top: 0;">💳 Estado de Cuenta</h3>
+    <p>Tu suscripción está: <b>{{ info['estado'] }}</b></p>
+    
+    <a href="/generar_pago/{{ session['dueño_id'] }}" 
+       style="display: block; background: #009ee3; color: white; padding: 15px; border-radius: 10px; text-decoration: none; font-weight: bold;">
+       RENOVAR MENSUALIDAD ($450 MXN)
+    </a>
+</div>
+    
     <div class="grid">
         <a href="/pos" class="btn-menu">
             <span class="icon">🛒</span>
