@@ -1,1 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root { --accent: #00f2fe; --bg: #0f172a; --card: rgba(255,255,255,0.05); }
+        body { background: var(--bg); color: white; font-family: sans-serif; padding: 20px; margin: 0; }
+        .header { text-align: center; margin-bottom: 30px; border-bottom: 1px solid var(--accent); padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .btn-menu { background: var(--card); border: 1px solid rgba(255,255,255,0.1); padding: 25px 10px; border-radius: 20px; 
+                    text-decoration: none; color: white; text-align: center; display: flex; flex-direction: column; 
+                    align-items: center; gap: 10px; transition: 0.3s; }
+        .btn-menu:active { transform: scale(0.95); background: var(--accent); color: black; }
+        .icon { font-size: 30px; }
+        .badge { font-size: 10px; background: var(--accent); color: black; padding: 2px 8px; border-radius: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2 style="margin: 0; color: var(--accent);">{{ session['empresa'] }}</h2>
+        <span class="badge">{{ session['rango'] }}</span>
+    </div>
 
+    <div class="grid">
+        <a href="/pos" class="btn-menu">
+            <span class="icon">🛒</span>
+            <span>Ventas</span>
+        </a>
+        <a href="/inventario" class="btn-menu">
+            <span class="icon">📦</span>
+            <span>Inventario</span>
+        </a>
+
+        {% if session['rango'] == 'Dueño' %}
+        <a href="/corte" class="btn-menu">
+            <span class="icon">📊</span>
+            <span>Corte de Caja</span>
+        </a>
+        <a href="/usuarios" class="btn-menu">
+            <span class="icon">👥</span>
+            <span>Empleados</span>
+        </a>
+        <a href="/config_negocio" class="btn-menu" style="grid-column: span 2; border-color: gray;">
+            <span class="icon">⚙️</span>
+            <span>Ajustes del Negocio</span>
+        </a>
+        {% endif %}
+    </div>
+
+    <div style="margin-top: 40px; text-align: center;">
+        <a href="/" style="color: #f43f5e; text-decoration: none; font-size: 14px;">🚪 Cerrar Sesión</a>
+    </div>
+</body>
+</html>
