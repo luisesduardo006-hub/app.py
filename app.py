@@ -1,4 +1,4 @@
-import os, random, urllib.parse
+return os, random, urllib.parse
 from flask import Flask, render_template, request, session, redirect, jsonify
 from datetime import datetime, timedelta
 import sqlite3
@@ -98,6 +98,50 @@ def procesar_venta():
     link = f"https://wa.me/{tel_cliente}?text={urllib.parse.quote(msg)}"
     
     return jsonify({"status": "ok", "link_wa": link})
+    
+ # --- PANEL MAESTRO (SOLO ADMIN 2026) ---
+@app.route('/panel_maestro')
+def panel_maestro():
+    if session.get('rango') != 'Administrador':
+        return redirect('/')
+    
+    # Obtenemos la lista de todos los dueños y sus estadísticas
+    clientes = query_db('''
+        SELECT c.*, 
+        (SELECT SUM(total) FROM ventas WHERE dueño_id = c.dueño_id) as ventas_totales
+        FROM config_tiendas c
+    ''')
+    
+    # Calculamos tu ganancia total (Suscripciones)
+    total_rentas = query_db("SELECT COUNT(*) as total FROM config_tiendas")[0]['total'] * 450
+    
+    return render_template('admin.html', clientes=clientes, total_rentas=total_rentas)
+
+@app.route('/crear_dueño', methods=['POST'])
+def crear_dueño():
+    if session.get('rango') != 'Administrador': return redirect('/')
+    
+    nombre_negocio = request.form.get('nombre').upper()
+    nueva_clv = generar_clave() # Usa la función de claves aleatorias
+    fecha_venc = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+    
+    # 1. Crear usuario Dueño
+    query_db("INSERT INTO usuarios (clave, nombre, rango) VALUES (?, ?, ?)", 
+             (nueva_clv, nombre_negocio, 'Dueño'))
+    
+    # 2. Crear su configuración inicial
+    query_db("INSERT INTO config_tiendas (dueño_id, nombre_empresa, vencimiento, estado) VALUES (?, ?, ?, ?)",
+             (nueva_clv, nombre_negocio, fecha_venc, 'ACTIVO'))
+    
+    return redirect('/panel_maestro')
+
+@app.route('/cambiar_ley', methods=['POST'])
+def cambiar_ley():
+    # Aquí puedes añadir lógica para cambiar el IVA global o mensajes
+    nuevo_iva = request.form.get('iva')
+    # Guardar en una tabla global (puedes expandir esto después)
+    return redirect('/panel_maestro')
+    
 
 if __name__ == '__main__':
     app.run(debug=True)
