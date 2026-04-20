@@ -36,7 +36,7 @@ inicializar_db()
 
 # --- CONFIGURACIÓN DE BASE DE DATOS ---
 def query_db(query, args=(), one=False):
-    con = sqlite3.connect('punto_venta_v11.db')
+    con = sqlite3.connect('punto_venta_v4.db') 
     con.row_factory = sqlite3.Row
     cur = con.cursor()
     cur.execute(query, args)
