@@ -305,19 +305,23 @@ def exportar_excel():
 def inventario():
     if 'user' not in session: return redirect('/')
     prods = query_db("SELECT * FROM productos WHERE dueño_id = ?", (session['dueño'],))
-    items = ""
-    for p in prods:
-        items += f'''<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-            <div style="text-align:left;"><b>{p['nombre']}</b><br><small style="color:#4dd0e1;">${p['precio']}</small></div>
-            <a href="/eliminar_producto/{p['id']}" onclick="return confirm('¿Eliminar producto?')" style="background:#ff5252;padding:5px 8px;border-radius:5px;text-decoration:none;color:white;font-size:0.8em;">BORRAR</a>
-        </div>'''
-    return f'''{CSS}<div class="card"><h2>Inventario</h2><form action="/agregar_producto" method="post">
-        <input name="nombre" placeholder="NOMBRE PRODUCTO" required style="text-transform:uppercase;">
+    
+    html = f'''{CSS}<div class="card"><h2>Inventario</h2>
+    <form action="/agregar_producto" method="post">
+        <input name="nombre" placeholder="PRODUCTO" required style="text-transform:uppercase;">
         <input name="precio" type="number" step="0.01" placeholder="PRECIO" required>
-        <button type="submit" class="btn-pos" style="margin-top:10px;">+ AGREGAR AL STOCK</button></form>
-        <div style="margin-top:20px;">{items if items else "<p style='color:#666;'>Inventario vacío.</p>"}</div>
-        <a href="/hub" class="btn-nav" style="margin-top:20px;background:#2c3e50;">Volver</a></div>'''
-
+        <button type="submit" class="btn-pos" style="margin-top:10px;">GUARDAR</button>
+    </form><hr>'''
+    
+    for p in prods:
+        html += f'''<div style="border-bottom:1px solid #333; padding:10px; display:flex; justify-content:space-between; align-items:center;">
+            <span>{p['nombre']} - ${p['precio']}</span>
+            <a href="/eliminar_producto/{p['id']}" onclick="return confirm('¿Borrar producto?')" style="color:#ff5252; text-decoration:none; padding:5px 10px;">🗑️</a>
+        </div>'''
+        
+    html += '<a href="/hub" class="btn-nav" style="margin-top:20px;">Volver</a></div>'
+    return html
+    
 @app.route('/agregar_producto', methods=['POST'])
 def agregar_producto():
     if 'user' not in session: return redirect('/')
