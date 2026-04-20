@@ -1,3 +1,35 @@
+import sqlite3
+from datetime import datetime, timedelta
+
+def inicializar_db():
+    conn = sqlite3.connect('punto_venta_v4.db')
+    cursor = conn.cursor()
+    
+    # Tabla de Usuarios (Admin, Dueños, Trabajadores)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios 
+        (clave TEXT PRIMARY KEY, nombre TEXT, rango TEXT, jefe TEXT)''')
+    
+    # Tabla de Configuración de Tiendas
+    cursor.execute('''CREATE TABLE IF NOT EXISTS config_tiendas 
+        (dueño_id TEXT, nombre_empresa TEXT, fecha_venc TEXT, estado TEXT DEFAULT 'ACTIVO')''')
+    
+    # Tabla de Productos
+    cursor.execute('''CREATE TABLE IF NOT EXISTS productos 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, precio REAL, stock REAL, unidad TEXT, dueño_id TEXT)''')
+    
+    # Tabla de Ventas
+    cursor.execute('''CREATE TABLE IF NOT EXISTS ventas 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, detalle TEXT, total REAL, vendedor TEXT, dueño_id TEXT, fecha TEXT)''')
+    
+    # CREAR EL ADMIN POR DEFECTO (Si no existe)
+    cursor.execute("INSERT OR IGNORE INTO usuarios (clave, nombre, rango) VALUES ('2026', 'ADMIN MAESTRO', 'Administrador')")
+    
+    conn.commit()
+    conn.close()
+
+# Se ejecuta cada vez que el servidor inicia
+inicializar_db()
+
 return os, random, urllib.parse
 from flask import Flask, render_template, request, session, redirect, jsonify
 from datetime import datetime, timedelta
