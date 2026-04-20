@@ -309,25 +309,42 @@ def inventario():
     html = f'''{CSS}<div class="card"><h2>Inventario</h2>
     <form action="/agregar_producto" method="post">
         <input name="nombre" placeholder="PRODUCTO" required style="text-transform:uppercase;">
-        <input name="precio" type="number" step="0.01" placeholder="PRECIO" required>
+        <input name="precio" type="number" step="0.01" placeholder="PRECIO $" required>
+        <input name="stock" type="number" step="0.1" placeholder="STOCK (OPCIONAL)">
+        <select name="unidad" style="width:100%; padding:10px; margin-top:10px; background:#1e293b; color:white; border-radius:5px;">
+            <option value="PZ">PIEZA (PZ)</option>
+            <option value="KG">KILOS (KG)</option>
+        </select>
         <button type="submit" class="btn-pos" style="margin-top:10px;">GUARDAR</button>
     </form><hr>'''
     
     for p in prods:
+        stk = p.get('stock') if p.get('stock') is not None else "---"
+        uni = p.get('unidad', 'PZ')
         html += f'''<div style="border-bottom:1px solid #333; padding:10px; display:flex; justify-content:space-between; align-items:center;">
-            <span>{p['nombre']} - ${p['precio']}</span>
-            <a href="/eliminar_producto/{p['id']}" onclick="return confirm('¿Borrar producto?')" style="color:#ff5252; text-decoration:none; padding:5px 10px;">🗑️</a>
+            <span>{p['nombre']} - ${p['precio']} ({stk} {uni})</span>
+            <a href="/eliminar_producto/{p['id']}" onclick="return confirm('¿Borrar?')" style="color:#ff5252; text-decoration:none;">🗑️</a>
         </div>'''
         
     html += '<a href="/hub" class="btn-nav" style="margin-top:20px;">Volver</a></div>'
     return html
     
+    
 @app.route('/agregar_producto', methods=['POST'])
 def agregar_producto():
     if 'user' not in session: return redirect('/')
-    query_db("INSERT INTO productos (nombre, precio, dueño_id) VALUES (?,?,?)", 
-             (request.form['nombre'].upper(), request.form['precio'], session['dueño']))
+    nom = request.form['nombre'].upper()
+    pre = request.form['precio']
+    stk = request.form.get('stock')
+    uni = request.form.get('unidad', 'PZ')
+    
+    # Si el stock está vacío se guarda como None
+    val_stk = float(stk) if stk else None
+    
+    query_db("INSERT INTO productos (nombre, precio, stock, unidad, dueño_id) VALUES (?,?,?,?,?)", 
+             (nom, pre, val_stk, uni, session['dueño']))
     return redirect('/inventario')
+    
 
 @app.route('/eliminar_producto/<int:id>')
 def eliminar_producto(id):
@@ -340,43 +357,84 @@ def eliminar_producto(id):
 @app.route('/proveedores')
 def proveedores():
     if 'user' not in session: return redirect('/')
+    # Consultamos los pagos registrados por este dueño
     pagos = query_db("SELECT * FROM pagos WHERE dueño = ?", (session['dueño'],))
-    lista_p = "".join([f'<div style="border-bottom:1px solid #333;padding:5px;">{pg["concepto"]} - ${pg["monto"]}</div>' for pg in pagos])
-    return f'''{CSS}<div class="card"><h2>Gastos</h2><form action="/registrar_pago" method="post">
-        <input name="concepto" placeholder="CONCEPTO" required style="text-transform:uppercase;">
-        <input name="monto" type="number" step="0.01" placeholder="MONTO $" required>
-        <button type="submit" class="btn-pos" style="margin-top:10px;">GUARDAR GASTO</button></form>
-        <div style="margin-top:20px;">{lista_p}</div><a href="/hub" class="btn-nav" style="margin-top:20px;">Volver</a></div>'''
+    
+    lista_gastos = ""
+    for pg in pagos:
+        lista_gastos += f'''<div style="border-bottom:1px solid #333; padding:8px; display:flex; justify-content:space-between;">
+            <span>{pg['concepto']}</span>
+            <b style="color:#ff5252;">${pg['monto']}</b>
+        </div>'''
 
+    return f'''{CSS}<div class="card"><h2>Gastos / Proveedores</h2>
+    <form action="/registrar_pago" method="post">
+        <input name="concepto" placeholder="CONCEPTO (EJ. PANADERO)" required style="text-transform:uppercase;">
+        <input name="monto" type="number" step="0.01" placeholder="MONTO $" required>
+        <button type="submit" class="btn-pos" style="margin-top:10px;">GUARDAR GASTO</button>
+    </form>
+    <div style="margin-top:20px; text-align:left;">
+        <h3 style="font-size:0.9em; color:#888;">HISTORIAL DE HOY:</h3>
+        {lista_gastos if lista_gastos else "<p style='color:#666;'>No hay gastos registrados.</p>"}
+    </div>
+    <a href="/hub" class="btn-nav" style="margin-top:20px;">Volver</a></div>'''
+    
 @app.route('/registrar_pago', methods=['POST'])
 def registrar_pago():
     if 'user' not in session: return redirect('/')
+    
+    concepto = request.form['concepto'].upper()
+    monto = request.form['monto']
+    responsable = session['user']
+    id_dueño = session['dueño']
+    fecha_hoy = datetime.now().strftime("%H:%M")
+    
+    # Insertamos en la tabla pagos
     query_db("INSERT INTO pagos (concepto, monto, responsable, dueño, fecha) VALUES (?,?,?,?,?)", 
-             (request.form['concepto'].upper(), request.form['monto'], session['user'], session['dueño'], datetime.now().strftime("%H:%M")))
+             (concepto, monto, responsable, id_dueño, fecha_hoy))
+    
     return redirect('/proveedores')
-
+    
 @app.route('/gestion_personal')
 def gestion_personal():
     if 'user' not in session: return redirect('/')
-    personal = query_db("SELECT * FROM usuarios WHERE dueño_id = ?", (session['dueño'],))
+    # Buscamos solo los trabajadores que pertenecen a este dueño
+    personal = query_db("SELECT * FROM usuarios WHERE dueño_id = ? AND rol = 'trabajador'", (session['dueño'],))
+    
     lista_p = ""
     for p in personal:
-        lista_p += f'''<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">
-            <span>👤 {p['usuario']}</span><b style="color:#4dd0e1;">PIN: {p['clave']}</b>
+        lista_p += f'''<div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px; margin-top:10px; display:flex; justify-content:space-between; align-items:center; border-left:4px solid #4dd0e1;">
+            <span>👤 {p['usuario']}</span>
+            <b style="color:#4dd0e1;">PIN: {p['clave']}</b>
         </div>'''
-    return f'''{CSS}<div class="card"><h2>Mi Personal</h2><p style="font-size:0.8em;opacity:0.6;">Dueño: {session['user']}</p><hr><form action="/crear_trabajador" method="post">
-        <input name="nombre" placeholder="NOMBRE COMPLETO" required style="text-transform:uppercase;">
-        <button type="submit" class="btn-pos" style="margin-top:10px;">+ CREAR ACCESO</button></form>
-        <div style="margin-top:20px;text-align:left;"><h3 style="font-size:0.9em;color:#888;">TRABAJADORES:</h3>{lista_p if lista_p else "<p style='color:#666;'>No hay personal registrado.</p>"}</div>
-        <a href="/hub" class="btn-nav" style="margin-top:20px;background:#2c3e50;">Volver</a></div>'''
+
+    return f'''{CSS}<div class="card"><h2>Gestión de Personal</h2>
+    <form action="/crear_trabajador" method="post">
+        <input name="nombre" placeholder="NOMBRE DEL TRABAJADOR" required style="text-transform:uppercase;">
+        <button type="submit" class="btn-pos" style="margin-top:10px;">+ CREAR ACCESO</button>
+    </form>
+    <div style="margin-top:20px; text-align:left;">
+        <h3 style="font-size:0.9em; color:#888;">PERSONAL REGISTRADO:</h3>
+        {lista_p if lista_p else "<p style='color:#666;'>No hay personal registrado aún.</p>"}
+    </div>
+    <a href="/hub" class="btn-nav" style="margin-top:20px; background:#2c3e50;">Volver</a></div>'''
+    
 
 @app.route('/crear_trabajador', methods=['POST'])
 def crear_trabajador():
     if 'user' not in session: return redirect('/')
+    
     nombre = request.form['nombre'].upper()
+    # Generamos un PIN de 4 dígitos al azar
     pin = str(random.randint(1000, 9999))
-    query_db("INSERT INTO usuarios (usuario, clave, rol, dueño_id) VALUES (?, ?, 'trabajador', ?)", (nombre, pin, session['dueño']))
+    id_dueño = session['dueño']
+    
+    # Insertamos con el rol de trabajador y vinculado al dueño
+    query_db("INSERT INTO usuarios (usuario, clave, rol, dueño_id) VALUES (?, ?, 'trabajador', ?)", 
+             (nombre, pin, id_dueño))
+    
     return redirect('/gestion_personal')
+    
     
 
 @app.route('/ajustes')
