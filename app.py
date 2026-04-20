@@ -112,6 +112,26 @@ CSS = '''
     .badge { background: var(--accent); color: black; padding: 3px 8px; border-radius: 5px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 </style>
 '''
+def actualizar_tablas():
+    import sqlite3
+    db = sqlite3.connect('punto_venta_v4.db')
+    cursor = db.cursor()
+    # Parche para Inventario
+    try:
+        cursor.execute("ALTER TABLE productos ADD COLUMN stock REAL")
+        cursor.execute("ALTER TABLE productos ADD COLUMN unidad TEXT DEFAULT 'PZ'")
+    except: pass
+    # Parche para Proveedores y Personal
+    try:
+        cursor.execute("ALTER TABLE pagos ADD COLUMN responsable TEXT")
+        cursor.execute("ALTER TABLE pagos ADD COLUMN dueño INTEGER")
+        cursor.execute("ALTER TABLE pagos ADD COLUMN fecha TEXT")
+    except: pass
+    db.commit()
+    db.close()
+
+actualizar_tablas()
+
 
 # --- RUTAS DE NAVEGACIÓN ---
 @app.route('/')
