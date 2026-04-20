@@ -3,21 +3,64 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        :root { --accent: #00f2fe; --bg: #0f172a; }
-        body { background: var(--bg); color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: rgba(255,255,255,0.05); padding: 30px; border-radius: 20px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); text-align: center; width: 80%; max-width: 300px; }
-        input { width: 100%; padding: 15px; margin: 10px 0; border-radius: 10px; border: none; background: rgba(0,0,0,0.3); color: white; text-align: center; font-size: 20px; letter-spacing: 5px; }
-        button { width: 100%; padding: 15px; border-radius: 10px; border: none; background: var(--accent); color: black; font-weight: bold; cursor: pointer; }
+        :root { --accent: #00f2fe; --gold: #ffd700; --bg: #0f172a; }
+        body { background: var(--bg); color: white; font-family: sans-serif; padding: 20px; }
+        .card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 15px; border: 1px solid gold; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+        th { text-align: left; border-bottom: 2px solid gold; padding: 10px; color: gold; }
+        td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .status { padding: 4px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
+        input { padding: 10px; border-radius: 5px; border: none; margin-bottom: 10px; width: 100%; }
+        .btn { background: gold; color: black; border: none; padding: 10px 20px; border-radius: 5px; font-weight: bold; cursor: pointer; }
     </style>
 </head>
 <body>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h1>👑 Master V11</h1>
+        <div class="card" style="border-color: var(--accent); margin: 0;">
+            <small>RECAUDACIÓN TOTAL:</small><br>
+            <b style="font-size: 20px; color: var(--accent);">${{ total_rentas }} MXN</b>
+        </div>
+    </div>
+
     <div class="card">
-        <h1 style="color: var(--accent);">V11</h1>
-        <p>Introduce tu clave de acceso</p>
-        <form action="/login" method="POST">
-            <input type="password" name="clave" placeholder="****" required>
-            <button type="submit">ENTRAR</button>
+        <h3>➕ Registrar Nueva Tienda</h3>
+        <form action="/crear_dueño" method="POST" style="display: flex; gap: 10px;">
+            <input type="text" name="nombre" placeholder="Nombre del Negocio (Ej: Carnicería)" required>
+            <button type="submit" class="btn">CREAR ACCESO</button>
         </form>
     </div>
+
+    <div class="card">
+        <h3>📊 Monitoreo Global de Clientes</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Tienda</th>
+                    <th>Clave Acceso</th>
+                    <th>Vencimiento</th>
+                    <th>Ventas Sistema</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in clientes %}
+                <tr>
+                    <td><b>{{ c.nombre_empresa }}</b></td>
+                    <td><code style="background: #000; padding: 3px 6px; color: var(--accent);">{{ c.dueño_id }}</code></td>
+                    <td>{{ c.vencimiento }}</td>
+                    <td style="color: #22c55e;">${{ c.ventas_totales or 0 }}</td>
+                    <td>
+                        <span class="status" style="background: {{ '#22c55e' if c.estado == 'ACTIVO' else '#f43f5e' }};">
+                            {{ c.estado }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <a href="/" style="color: white; text-decoration: none; opacity: 0.5;">⬅ Cerrar Sesión Maestro</a>
 </body>
 </html>
