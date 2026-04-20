@@ -248,6 +248,10 @@ def finalizar_venta():
 
     return jsonify({"status": "success"})
     
+@app.route('/health')
+def health_check():
+    return "OK", 200
+    
 
 if __name__ == '__main__':
     app.run(debug=True)
