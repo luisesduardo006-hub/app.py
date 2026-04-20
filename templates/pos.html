@@ -5,38 +5,63 @@
     <style>
         :root { --accent: #00f2fe; --bg: #0f172a; }
         body { background: var(--bg); color: white; font-family: sans-serif; padding: 15px; margin:0; }
-        .pos-container { display: flex; flex-direction: column; height: 100vh; }
-        .lista-productos { flex-grow: 1; overflow-y: auto; padding: 10px; }
-        .item { background: rgba(255,255,255,0.05); padding: 15px; margin-bottom: 10px; border-radius: 10px; display: flex; justify-content: space-between; }
-        .footer-cobro { background: #1e293b; padding: 20px; border-radius: 20px 20px 0 0; }
-        .total-box { font-size: 30px; font-weight: bold; text-align: center; color: var(--accent); margin-bottom: 15px; }
-        .btn-cobrar { width: 100%; padding: 15px; border-radius: 10px; border: none; background: #22c55e; color: white; font-size: 18px; font-weight: bold; }
+        .footer-cobro { position: fixed; bottom: 0; left: 0; width: 100%; background: #1e293b; padding: 20px; box-sizing: border-box; border-radius: 20px 20px 0 0; }
+        .total-box { font-size: 32px; color: var(--accent); text-align: center; margin-bottom: 15px; font-weight: bold; }
+        .btn-cobrar { width: 100%; padding: 15px; background: #22c55e; border: none; border-radius: 10px; color: white; font-size: 18px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div class="pos-container">
-        <div style="padding: 10px; display: flex; justify-content: space-between;">
-            <a href="/hub" style="color: white; text-decoration: none;">✖ Salir</a>
-            <b>🛒 Venta Nueva</b>
-        </div>
+    <div style="padding: 10px; display: flex; justify-content: space-between;">
+        <a href="/hub" style="color: white; text-decoration: none;">✖ Salir</a>
+        <b>🛒 Caja V11</b>
+    </div>
 
-        <div class="lista-productos">
-            <p style="text-align: center; opacity: 0.5;">Selecciona productos del inventario para sumar al carrito...</p>
-        </div>
-
-        <div class="footer-cobro">
-            <div class="total-box">$0.00</div>
-            <input type="number" id="tel_cliente" placeholder="WhatsApp del cliente (Opcional)" 
-                   style="width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: none;">
-            <button class="btn-cobrar" onclick="confirmarVenta()">💰 COBRAR Y ENVIAR TICKET</button>
+    <div class="lista-productos">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            {% for p in productos %}
+            <button onclick="agregarAlCarrito('{{p.id}}', '{{p.nombre}}', {{p.precio}}, {{ 'null' if p.stock == None else p.stock }})" 
+                    style="display: flex; flex-direction: column; text-align: left; background: rgba(255,255,255,0.1); border: none; color: white; padding: 15px; border-radius: 10px;">
+                <b style="font-size: 16px;">{{ p.nombre }}</b>
+                <span style="color: var(--accent); font-size: 14px;">${{ p.precio }}</span>
+                <small style="opacity: 0.6;">{{ p.unidad }}</small>
+            </button>
+            {% endfor %}
         </div>
     </div>
 
+    <div style="height: 180px;"></div>
+
+    <div class="footer-cobro">
+        <div class="total-box">$0.00</div>
+        <input type="number" id="tel_cliente" placeholder="WhatsApp del cliente" 
+               style="width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: none; background: #0f172a; color: white;">
+        <button class="btn-cobrar" onclick="confirmarVenta()">💰 COBRAR Y TICKET</button>
+    </div>
+
     <script>
-        function confirmarVenta() {
-            alert("¡Venta procesada con éxito! (Enviando ticket...)");
-            // Aquí irá la función fetch que ya pusimos en app.py para procesar el JSON
-        }
+    let carrito = [];
+    let total = 0;
+
+    function agregarAlCarrito(id, nombre, precio, stock) {
+        carrito.push({id: id, nombre: nombre, precio: precio, cantidad: 1, stock: stock});
+        total += precio;
+        document.querySelector('.total-box').innerText = "$" + total.toFixed(2);
+    }
+
+    function confirmarVenta() {
+        if (carrito.length === 0) return alert("El carrito está vacío");
+        
+        fetch('/finalizar_venta', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({carrito: carrito, total: total})
+        }).then(() => {
+            let msg = `🏪 *Ticket de Venta*\nTotal: $${total.toFixed(2)}\n¡Gracias por su compra!`;
+            let tel = document.getElementById('tel_cliente').value;
+            if(tel) window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`);
+            location.reload();
+        });
+    }
     </script>
 </body>
 </html>
