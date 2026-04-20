@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root { --accent: #00f2fe; --bg: #0f172a; }
+        body { background: var(--bg); color: white; font-family: sans-serif; padding: 15px; margin:0; }
+        .pos-container { display: flex; flex-direction: column; height: 100vh; }
+        .lista-productos { flex-grow: 1; overflow-y: auto; padding: 10px; }
+        .item { background: rgba(255,255,255,0.05); padding: 15px; margin-bottom: 10px; border-radius: 10px; display: flex; justify-content: space-between; }
+        .footer-cobro { background: #1e293b; padding: 20px; border-radius: 20px 20px 0 0; }
+        .total-box { font-size: 30px; font-weight: bold; text-align: center; color: var(--accent); margin-bottom: 15px; }
+        .btn-cobrar { width: 100%; padding: 15px; border-radius: 10px; border: none; background: #22c55e; color: white; font-size: 18px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="pos-container">
+        <div style="padding: 10px; display: flex; justify-content: space-between;">
+            <a href="/hub" style="color: white; text-decoration: none;">✖ Salir</a>
+            <b>🛒 Venta Nueva</b>
+        </div>
+
+        <div class="lista-productos">
+            <p style="text-align: center; opacity: 0.5;">Selecciona productos del inventario para sumar al carrito...</p>
+        </div>
+
+        <div class="footer-cobro">
+            <div class="total-box">$0.00</div>
+            <input type="number" id="tel_cliente" placeholder="WhatsApp del cliente (Opcional)" 
+                   style="width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 8px; border: none;">
+            <button class="btn-cobrar" onclick="confirmarVenta()">💰 COBRAR Y ENVIAR TICKET</button>
+        </div>
+    </div>
+
+    <script>
+        function confirmarVenta() {
+            alert("¡Venta procesada con éxito! (Enviando ticket...)");
+            // Aquí irá la función fetch que ya pusimos en app.py para procesar el JSON
+        }
+    </script>
+</body>
+</html>
