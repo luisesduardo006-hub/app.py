@@ -171,6 +171,28 @@ def crear_trabajador():
     
     return redirect('/usuarios')
     
+@app.route('/inventario')
+def inventario():
+    if 'user' not in session: return redirect('/')
+    # Solo mostramos los productos que pertenecen al dueño actual (AISLAMIENTO)
+    productos = query_db("SELECT * FROM productos WHERE dueño_id = ?", (session['dueño_id'],))
+    return render_template('inventario.html', productos=productos)
+
+@app.route('/agregar_producto', methods=['POST'])
+def agregar_producto():
+    nombre = request.form.get('nombre').upper()
+    precio = request.form.get('precio')
+    unidad = request.form.get('unidad')
+    stock_input = request.form.get('stock')
+    
+    # Lógica de Stock Opcional: Si está vacío, se guarda como None (infinito)
+    stock = float(stock_input) if stock_input and stock_input.strip() != "" else None
+    
+    query_db("INSERT INTO productos (nombre, precio, stock, unidad, dueño_id) VALUES (?, ?, ?, ?, ?)",
+             (nombre, precio, stock, unidad, session['dueño_id']))
+    
+    return redirect('/inventario')
+    
 
 if __name__ == '__main__':
     app.run(debug=True)
