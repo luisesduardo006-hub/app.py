@@ -1,5 +1,6 @@
 flask
-pandas
-mercadopago
-openpyxl
+flask-sqlalchemy
 gunicorn
+pandas
+openpyxl
+mercadopago
