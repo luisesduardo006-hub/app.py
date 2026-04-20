@@ -193,6 +193,33 @@ def agregar_producto():
     
     return redirect('/inventario')
     
+@app.route('/pos')
+def pos():
+    if 'user' not in session: return redirect('/')
+    # Cargamos productos del dueño para el carrito
+    productos = query_db("SELECT * FROM productos WHERE dueño_id = ?", (session['dueño_id'],))
+    return render_template('pos.html', productos=productos)
+
+@app.route('/finalizar_venta', methods=['POST'])
+def finalizar_venta():
+    datos = request.json
+    carrito = datos['carrito']
+    total = datos['total']
+    dueño = session['dueño_id']
+
+    for item in carrito:
+        # Solo restamos si el producto tiene un stock definido (no es None/Infinito)
+        if item['stock'] is not None:
+            query_db("UPDATE productos SET stock = stock - ? WHERE id = ? AND dueño_id = ?", 
+                     (item['cantidad'], item['id'], dueño))
+
+    # Guardamos el registro de la venta para el Excel
+    detalle_texto = ", ".join([f"{i['nombre']} (x{i['cantidad']})" for i in carrito])
+    query_db("INSERT INTO ventas (detalle, total, vendedor, dueño_id, fecha) VALUES (?,?,?,?,?)",
+             (detalle_texto, total, session['user'], dueño, datetime.now()))
+
+    return jsonify({"status": "success"})
+    
 
 if __name__ == '__main__':
     app.run(debug=True)
