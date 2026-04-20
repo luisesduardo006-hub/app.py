@@ -1,1 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root { --accent: #00f2fe; --bg: #0f172a; }
+        body { background: var(--bg); color: white; font-family: sans-serif; padding: 20px; }
+        .card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 10px; border: none; background: rgba(0,0,0,0.3); color: white; box-sizing: border-box; }
+        .btn { width: 100%; padding: 12px; border-radius: 10px; border: none; background: var(--accent); color: black; font-weight: bold; }
+        .user-row { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .clave-tag { background: #000; color: var(--accent); padding: 5px 10px; border-radius: 5px; font-family: monospace; font-size: 18px; }
+    </style>
+</head>
+<body>
+    <a href="/hub" style="color: var(--accent); text-decoration: none;">⬅ Volver al Menú</a>
+    
+    <h2 style="margin-top: 20px;">👥 Gestión de Empleados</h2>
 
+    <div class="card">
+        <form action="/crear_trabajador" method="POST">
+            <label>Nombre del Trabajador:</label>
+            <input type="text" name="nombre" placeholder="Ej: JUAN PEREZ" required>
+            <button type="submit" class="btn">GENERAR CLAVE ALEATORIA</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>Lista de Accesos</h3>
+        {% for e in empleados %}
+        <div class="user-row">
+            <div>
+                <b style="display: block;">{{ e.nombre }}</b>
+                <small style="opacity: 0.6;">Rango: {{ e.rango }}</small>
+            </div>
+            <div class="clave-tag">{{ e.clave }}</div>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
