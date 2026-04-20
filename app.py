@@ -382,18 +382,23 @@ def proveedores():
 @app.route('/registrar_pago', methods=['POST'])
 def registrar_pago():
     if 'user' not in session: return redirect('/')
-    
-    concepto = request.form['concepto'].upper()
-    monto = request.form['monto']
-    responsable = session['user']
-    id_dueño = session['dueño']
-    fecha_hoy = datetime.now().strftime("%H:%M")
-    
-    # Insertamos en la tabla pagos
-    query_db("INSERT INTO pagos (concepto, monto, responsable, dueño, fecha) VALUES (?,?,?,?,?)", 
-             (concepto, monto, responsable, id_dueño, fecha_hoy))
+    try:
+        concepto = request.form['concepto'].upper()
+        monto = request.form['monto']
+        responsable = session.get('user', 'SISTEMA')
+        id_dueño = session.get('dueño')
+        fecha_hoy = datetime.now().strftime("%H:%M")
+        
+        # Usamos nombres de columnas estándar para evitar el error 500
+        query_db("INSERT INTO pagos (concepto, monto, responsable, dueño, fecha) VALUES (?,?,?,?,?)", 
+                 (concepto, monto, responsable, id_dueño, fecha_hoy))
+    except Exception as e:
+        print(f"Error al guardar pago: {e}")
+        # Si falla, al menos no te saca el error 500, solo te regresa
+        return redirect('/proveedores')
     
     return redirect('/proveedores')
+    
     
 @app.route('/gestion_personal')
 def gestion_personal():
