@@ -1,42 +1,38 @@
 import sqlite3
+import os
+import random
+import urllib.parse
+from flask import Flask, render_template, request, session, redirect, url_for
 from datetime import datetime, timedelta
+import mercadopago
 
+# --- CONFIGURACIÓN GLOBAL ---
+app = Flask(__name__)
+app.secret_key = 'v11_secret_2026'
+
+# --- CONFIGURACIÓN MERCADO PAGO ---
+sdk = mercadopago.SDK("APP_USR-5698071543918489-041916-eb07a14c4a0b922a085b5e338cc595fe-3346852284")
+PUBLIC_KEY = "APP_USR-a0880d9f-0952-44c9-b3a4-5f208c01833f"
+
+# --- INICIALIZACIÓN DE BASE DE DATOS ---
 def inicializar_db():
     conn = sqlite3.connect('punto_venta_v4.db')
     cursor = conn.cursor()
-    
-    # Tabla de Usuarios (Admin, Dueños, Trabajadores)
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios 
         (clave TEXT PRIMARY KEY, nombre TEXT, rango TEXT, jefe TEXT)''')
-    
-    # Tabla de Configuración de Tiendas
     cursor.execute('''CREATE TABLE IF NOT EXISTS config_tiendas 
         (dueño_id TEXT, nombre_empresa TEXT, fecha_venc TEXT, estado TEXT DEFAULT 'ACTIVO')''')
-    
-    # Tabla de Productos
     cursor.execute('''CREATE TABLE IF NOT EXISTS productos 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, precio REAL, stock REAL, unidad TEXT, dueño_id TEXT)''')
-    
-    # Tabla de Ventas
     cursor.execute('''CREATE TABLE IF NOT EXISTS ventas 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, detalle TEXT, total REAL, vendedor TEXT, dueño_id TEXT, fecha TEXT)''')
-    
-    # CREAR EL ADMIN POR DEFECTO (Si no existe)
     cursor.execute("INSERT OR IGNORE INTO usuarios (clave, nombre, rango) VALUES ('2026', 'ADMIN MAESTRO', 'Administrador')")
-    
     conn.commit()
     conn.close()
 
-# Se ejecuta cada vez que el servidor inicia
+# Ejecutamos la función para asegurar que las tablas existan
 inicializar_db()
 
-return os, random, urllib.parse
-from flask import Flask, render_template, request, session, redirect, jsonify
-from datetime import datetime, timedelta
-import sqlite3
-
-app = Flask(__name__)
-app.secret_key = 'v11_secret_2026'
 
 # --- CONFIGURACIÓN DE BASE DE DATOS ---
 def query_db(query, args=(), one=False):
