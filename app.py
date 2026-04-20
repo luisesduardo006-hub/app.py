@@ -142,6 +142,35 @@ def cambiar_ley():
     # Guardar en una tabla global (puedes expandir esto después)
     return redirect('/panel_maestro')
     
+@app.route('/hub')
+def hub():
+    if 'user' not in session: return redirect('/')
+    
+    # Verificamos si el dueño tiene la renta activa
+    info = query_db("SELECT * FROM config_tiendas WHERE dueño_id = ?", (session['dueño_id'],), one=True)
+    
+    if info and info['estado'] == 'SUSPENDIDO':
+        return "<h1>Cuenta Suspendida</h1><p>Contacta al administrador para reactivar.</p>"
+
+    return render_template('hub.html', info=info)
+
+@app.route('/usuarios')
+def gestionar_usuarios():
+    if session.get('rango') != 'Dueño': return redirect('/hub')
+    # Solo vemos los trabajadores que pertenecen a este dueño
+    empleados = query_db("SELECT * FROM usuarios WHERE jefe = ?", (session['clave'],))
+    return render_template('usuarios.html', empleados=empleados)
+
+@app.route('/crear_trabajador', methods=['POST'])
+def crear_trabajador():
+    nombre = request.form.get('nombre').upper()
+    nueva_clv = generar_clave() # Genera clave aleatoria de 4 dígitos
+    
+    query_db("INSERT INTO usuarios (clave, nombre, rango, jefe) VALUES (?, ?, ?, ?)",
+             (nueva_clv, nombre, 'Trabajador', session['clave']))
+    
+    return redirect('/usuarios')
+    
 
 if __name__ == '__main__':
     app.run(debug=True)
