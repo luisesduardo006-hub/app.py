@@ -192,12 +192,19 @@ def gestionar_usuarios():
 @app.route('/crear_trabajador', methods=['POST'])
 def crear_trabajador():
     nombre = request.form.get('nombre').upper()
-    nueva_clv = generar_clave() # Genera clave aleatoria de 4 dígitos
-    
-    query_db("INSERT INTO usuarios (clave, nombre, rango, jefe) VALUES (?, ?, ?, ?)",
-             (nueva_clv, nombre, 'Trabajador', session['clave']))
-    
-    return redirect('/usuarios')
+    nueva_clv = generar_clave() # Tu función que genera la clave
+    jefe = session.get('user') # El Dueño que está logueado
+
+    try:
+        # Asegúrate de que el orden sea: clave, nombre, rango, jefe
+        query_db("INSERT INTO usuarios (clave, nombre, rango, jefe) VALUES (?, ?, ?, ?)", 
+                 (nueva_clv, nombre, 'Trabajador', jefe))
+        
+        return redirect('/usuarios')
+    except Exception as e:
+        print(f"Error al crear trabajador: {e}")
+        return f"Error interno: {e}", 500
+        
     
 @app.route('/inventario')
 def inventario():
