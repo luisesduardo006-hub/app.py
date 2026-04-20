@@ -46,6 +46,17 @@ def init_db():
     query_db("INSERT OR IGNORE INTO usuarios VALUES (?,?,?,?)", ('2026', 'Admin Maestro', 'Administrador', 'SISTEMA'))
     query_db("INSERT OR IGNORE INTO config VALUES (?,?,?,?,?)", ('2026', 'CENTRAL POS', '52', 'ACTIVO', '2030-01-01'))
 
+def actualizar_tablas():
+    # Parches automáticos para asegurar que no truene por columnas faltantes
+    try:
+        query_db("ALTER TABLE productos ADD COLUMN stock REAL")
+        query_db("ALTER TABLE productos ADD COLUMN unidad TEXT DEFAULT 'PZ'")
+    except: pass
+    try:
+        query_db("ALTER TABLE pagos ADD COLUMN responsable TEXT")
+        query_db("ALTER TABLE pagos ADD COLUMN fecha TEXT")
+    except: pass
+
 # --- SEGURIDAD Y BLOQUEO AUTOMÁTICO ---
 @app.before_request
 def verificar_estatus():
@@ -65,6 +76,7 @@ def verificar_estatus():
                     <a href="/" class="btn-nav">Cerrar Sesión</a>
                 </div>'''
 
+# --- MERCADO PAGO ---
 @app.route('/health')
 def health():
     return "OK", 200
@@ -92,6 +104,7 @@ def generar_pago():
     res = sdk.preference().create(preference_data)
     return redirect(res["response"]["init_point"])
 
+# --- ESTILOS ---
 CSS = '''
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
@@ -101,18 +114,17 @@ CSS = '''
     h2 { background: linear-gradient(to right, #00f2fe, #4facfe); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; font-weight: 800; }
     input, select { background: rgba(0,0,0,0.3); border: 1px solid var(--border); color: white; padding: 12px; width: 100%; border-radius: 10px; margin-bottom: 10px; box-sizing: border-box; }
     button { background: linear-gradient(to right, #00f2fe, #4facfe); color: #0b0f1a; border: none; padding: 15px; width: 100%; border-radius: 10px; font-weight: 800; cursor: pointer; transition: 0.3s; }
-    button:hover { opacity: 0.8; transform: scale(0.98); }
     .btn-nav { text-decoration: none; color: #94a3b8; display: block; text-align: center; padding: 12px; border-radius: 10px; border: 1px solid var(--border); margin-top: 10px; font-size: 14px; font-weight: 600; }
+    .badge { background: var(--accent); color: black; padding: 3px 8px; border-radius: 5px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
     table { width: 100%; font-size: 13px; border-collapse: collapse; }
     td { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-    .badge { background: var(--accent); color: black; padding: 3px 8px; border-radius: 5px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 </style>
 '''
 
 @app.route('/')
 def login():
     session.clear()
-    return f'{CSS}<div class="card"><h2>Acceso V10</h2><p style="text-align:center; color:#64748b; font-size:14px">Smart Business System</p><form action="/auth" method="POST"><input name="c" type="password" placeholder="Clave Operativa" required autofocus><button>INGRESAR</button></form></div>'
+    return f'{CSS}<div class="card"><h2>Acceso V10</h2><form action="/auth" method="POST"><input name="c" type="password" placeholder="Clave Operativa" required autofocus><button>INGRESAR</button></form></div>'
 
 @app.route('/auth', methods=['POST'])
 def auth():
@@ -134,13 +146,8 @@ def hub():
         html += '<a href="/proveedores" class="btn-nav">🚚 PAGO A PROVEEDORES</a>'
         html += '<a href="/inventario" class="btn-nav">📦 INVENTARIO</a>'
     if session['rango'] == 'Dueño':
-        html += '<div style="margin-top:20px; border-top:1px solid var(--border); padding-top:10px"></div>'
-        html += '<a href="/corte" class="btn-nav" style="border-color:var(--accent); color:var(--accent)">📊 CORTE DE CAJA</a>'
-        html += '<a href="/gestion_personal" class="btn-nav">👥 GESTIÓN DE PERSONAL</a>'
-        html += '<a href="/ajustes" class="btn-nav">⚙️ CONFIGURACIÓN</a>'
-    if session['rango'] == 'Administrador':
-        html += '<a href="/gestion_dueños" class="btn-nav" style="background:#f59e0b; color:black; border:none; font-weight:800">🏢 PANEL DE ADMINISTRADOR</a>'
-    html += '<a href="/" class="btn-nav" style="color:#f43f5e; border-color:rgba(244,63,94,0.2); margin-top:30px">Cerrar Sesión Segura</a></div>'
+        html += '<a href="/corte" class="btn-nav">📊 CORTE DE CAJA</a>'
+    html += '<a href="/" class="btn-nav" style="color:#f43f5e; margin-top:30px">Cerrar Sesión</a></div>'
     return html
 
 @app.route('/pos')
@@ -148,20 +155,14 @@ def pos():
     prods = query_db("SELECT * FROM productos WHERE dueño=?", (session['dueño'],), True)
     carro = session.get('carro', [])
     total = sum(i['s'] for i in carro)
-    l_bus = "".join([f'<div style="padding:12px; border-bottom:1px solid var(--border); cursor:pointer" onclick="document.getElementById(\'pid\').value=\'{p["id"]}\'; document.getElementById(\'q\').value=\'{p["nombre"]}\'; this.parentElement.style.display=\'none\'">{p["nombre"]} - <span style="color:var(--accent)">${p["precio"]}</span> <small>({p["stock"] if p["stock"] is not None else "∞"})</small></div>' for p in prods])
-    return f'''{CSS}<div class="card"><h2>Terminal de Venta</h2>
-        <table>{"".join([f"<tr><td>{i['n']}</td><td style='text-align:right'>${i['s']}</td></tr>" for i in carro])}</table>
-        <div style="background:rgba(0,242,254,0.1); padding:15px; border-radius:15px; text-align:center; margin:15px 0">
-            <small>TOTAL A PAGAR</small><h2 style="margin:0; font-size:32px">${total}</h2>
-        </div>
-        <form action="/pagar" method="POST"><input name="tel" placeholder="WhatsApp Cliente" required><button>FINALIZAR VENTA</button></form>
-        <div style="margin-top:20px; border-top:1px dashed var(--border); padding-top:15px">
-            <input id="q" onkeyup="this.nextElementSibling.style.display='block'" placeholder="🔍 Buscar producto...">
-            <div style="display:none; background:#1e293b; border-radius:10px; position:absolute; width:85%; z-index:10; border:1px solid var(--accent); max-height:200px; overflow-y:auto">{l_bus}</div>
-            <form action="/add_carro" method="POST" style="display:flex; gap:10px; margin-top:10px">
-                <input type="hidden" name="id" id="pid"><input name="val" type="number" step="0.01" placeholder="Cant/Monto" required><button style="width:60px">+</button>
-            </form>
-        </div><a href="/hub" class="btn-nav">Regresar al Menú</a></div>'''
+    l_bus = "".join([f'<div style="padding:12px; border-bottom:1px solid var(--border); cursor:pointer" onclick="document.getElementById(\'pid\').value=\'{p["id"]}\'; document.getElementById(\'q\').value=\'{p["nombre"]}\'; this.parentElement.style.display=\'none\'">{p["nombre"]} - ${p["precio"]}</div>' for p in prods])
+    return f'''{CSS}<div class="card"><h2>Caja</h2>
+        <div style="background:rgba(0,242,254,0.1); padding:15px; border-radius:15px; text-align:center"><h2>${total}</h2></div>
+        <form action="/pagar" method="POST"><input name="tel" placeholder="WhatsApp Cliente" required><button>FINALIZAR</button></form>
+        <div style="margin-top:20px"><input id="q" onkeyup="this.nextElementSibling.style.display=\'block\'" placeholder="🔍 Buscar...">
+        <div style="display:none; background:#1e293b; position:absolute; width:85%; z-index:10; border:1px solid var(--accent); max-height:200px; overflow-y:auto">{l_bus}</div>
+        <form action="/add_carro" method="POST" style="display:flex; gap:10px; margin-top:10px"><input type="hidden" name="id" id="pid"><input name="val" type="number" step="0.01" placeholder="Cant" required><button>+</button></form></div>
+        <a href="/hub" class="btn-nav">Regresar</a></div>'''
 
 @app.route('/add_carro', methods=['POST'])
 def add_carro():
@@ -176,51 +177,43 @@ def add_carro():
 def pagar():
     carro = session.get('carro', [])
     if not carro: return redirect('/pos')
-    ticket_prod = ""
+    ticket = "🧾 *TICKET*%0A"
     for i in carro:
         query_db("UPDATE productos SET stock = stock - ? WHERE id = ? AND stock IS NOT NULL", (i['c'], i['id']))
         query_db("INSERT INTO ventas (total, fecha, detalle, vendedor, dueño) VALUES (?,?,?,?,?)", (i['s'], datetime.now().strftime("%H:%M"), i['n'], session['user'], session['dueño']))
-        ticket_prod += f"• {i['n']} ({i['c']}) ${i['s']}%0A"
+        ticket += f"• {i['n']} ${i['s']}%0A"
     session['carro'] = []
-    return redirect(f"https://api.whatsapp.com/send?phone={request.form['tel']}&text=Ticket%0A{ticket_prod}")
-
-@app.route('/corte')
-def corte():
-    v_l = query_db("SELECT * FROM ventas WHERE dueño=? ORDER BY id DESC", (session['dueño'],), True)
-    p_l = query_db("SELECT * FROM pagos WHERE dueño=? ORDER BY id DESC", (session['dueño'],), True)
-    t_v, t_p = sum(v['total'] for v in v_l), sum(p['monto'] for p in p_l)
-    return f'''{CSS}<div class="card"><h2>Corte Diario</h2>
-        <div style="text-align:center; background:rgba(34,197,94,0.1); padding:20px; border-radius:20px; border:1px solid #22c55e; margin-bottom:15px">
-            <small>NETO EN CAJA</small><h1 style="margin:5px 0">${t_v - t_p}</h1>
-        </div>
-        <a href="/exportar_excel" class="btn-nav" style="background:#1d6f42; color:white; border:none">📑 REPORTE EXCEL</a>
-        <a href="/hub" class="btn-nav">Volver</a></div>'''
+    return redirect(f"https://api.whatsapp.com/send?phone={request.form['tel']}&text={ticket}")
 
 @app.route('/exportar_excel')
 def exportar_excel():
     conn = get_db_connection()
-    df_v = pd.read_sql_query("SELECT id, fecha, vendedor, detalle, total FROM ventas WHERE dueño=?", conn, params=(session['dueño'],))
-    df_p = pd.read_sql_query("SELECT id, fecha, responsable, concepto, monto FROM pagos WHERE dueño=?", conn, params=(session['dueño'],))
-    query_db("DELETE FROM ventas WHERE dueño=?", (session['dueño'],))
-    query_db("DELETE FROM pagos WHERE dueño=?", (session['dueño'],))
+    dueño_id = session['dueño']
+    df_v = pd.read_sql_query("SELECT id as 'TICKET', fecha as HORA, vendedor as 'RESPONSABLE', detalle as 'CONCEPTO', total as 'ENTRADA (+)', 0.0 as 'SALIDA (-)' FROM ventas WHERE dueño=?", conn, params=(dueño_id,))
+    df_p = pd.read_sql_query("SELECT id as 'TICKET', fecha as HORA, responsable as 'RESPONSABLE', concepto as 'CONCEPTO', 0.0 as 'ENTRADA (+)', monto as 'SALIDA (-)' FROM pagos WHERE dueño=?", conn, params=(dueño_id,))
+    df_final = pd.concat([df_v, df_p]).sort_values(by='HORA')
+    
+    query_db("DELETE FROM ventas WHERE dueño=?", (dueño_id,))
+    query_db("DELETE FROM pagos WHERE dueño=?", (dueño_id,))
+
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_v.to_excel(writer, index=False, sheet_name='Ventas')
+        df_final.to_excel(writer, index=False, sheet_name='Cierre')
+        ws = writer.sheets['Cierre']
+        from openpyxl.styles import PatternFill, Font
+        header_fill = PatternFill(start_color="2D3748", end_color="2D3748", fill_type="solid")
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = Font(color="FFFFFF", bold=True)
     output.seek(0)
     return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name="corte.xlsx")
 
 @app.route('/inventario')
 def inventario():
     prods = query_db("SELECT * FROM productos WHERE dueño = ?", (session['dueño'],), True)
-    html = f'''{CSS}<div class="card"><h2>Inventario</h2>
-    <form action="/agregar_producto" method="post">
-        <input name="nombre" placeholder="PRODUCTO" required>
-        <input name="precio" type="number" step="0.01" placeholder="PRECIO">
-        <input name="stock" type="number" step="0.1" placeholder="STOCK">
-        <select name="unidad"><option value="PZ">PIEZA</option><option value="KG">KILO</option></select>
-        <button>GUARDAR</button></form>'''
+    html = f'{CSS}<div class="card"><h2>Inventario</h2><form action="/agregar_producto" method="post"><input name="nombre" placeholder="Producto" required><input name="precio" type="number" step="0.01" placeholder="Precio"><input name="stock" type="number" step="0.1" placeholder="Stock"><select name="unidad"><option value="PZ">PZ</option><option value="KG">KG</option></select><button>GUARDAR</button></form>'
     for p in prods:
-        html += f'<div style="border-bottom:1px solid #333; padding:10px;">{p["nombre"]} - ${p["precio"]} ({p["stock"]} {p["unidad"]})</div>'
+        html += f'<div style="padding:10px; border-bottom:1px solid #333">{p["nombre"]} - ${p["precio"]} ({p["stock"]} {p["unidad"]}) <a href="/eliminar_producto/{p["id"]}" style="color:red; float:right">🗑️</a></div>'
     return html + '<a href="/hub" class="btn-nav">Volver</a></div>'
 
 @app.route('/agregar_producto', methods=['POST'])
@@ -229,15 +222,28 @@ def agregar_producto():
              (request.form['nombre'].upper(), request.form['precio'], request.form['stock'], request.form['unidad'], session['dueño']))
     return redirect('/inventario')
 
+@app.route('/eliminar_producto/<int:id>')
+def eliminar_producto(id):
+    query_db("DELETE FROM productos WHERE id=? AND dueño=?", (id, session['dueño']))
+    return redirect('/inventario')
+
 @app.route('/proveedores')
 def proveedores():
     pagos = query_db("SELECT * FROM pagos WHERE dueño = ?", (session['dueño'],), True)
-    html = f'{CSS}<div class="card"><h2>Gastos</h2>'
+    html = f'{CSS}<div class="card"><h2>Gastos</h2><form action="/registrar_pago" method="post"><input name="con" placeholder="Concepto"><input name="mon" type="number" step="0.01" placeholder="Monto"><button>REGISTRAR</button></form>'
     for pg in pagos:
         html += f'<div style="padding:8px; border-bottom:1px solid #333">{pg["concepto"]} - ${pg["monto"]}</div>'
     return html + '<a href="/hub" class="btn-nav">Volver</a></div>'
 
+@app.route('/registrar_pago', methods=['POST'])
+def registrar_pago():
+    query_db("INSERT INTO pagos (concepto, monto, responsable, dueño, fecha) VALUES (?,?,?,?,?)", 
+             (request.form['con'].upper(), request.form['mon'], session['user'], session['dueño'], datetime.now().strftime("%H:%M")))
+    return redirect('/proveedores')
+
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True)
+    actualizar_tablas()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
     
